@@ -1,0 +1,8 @@
+**/target/
+.idea
+*.iml
+*.class
+**/test
+
+**/node_modules/
+**/tmp/

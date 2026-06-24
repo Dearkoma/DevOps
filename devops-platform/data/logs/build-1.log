@@ -1,0 +1,42 @@
+[INFO] 2026-06-23T18:31:12.839239500 开始构建 #1
+[INFO] 项目: 前端管理后台
+[INFO] 流水线: 前端管理后台 部署流水线
+
+========== 阶段: 代码拉取 ==========
+[STEP] 执行: Git Pull (SHELL)
+$ git pull origin main
+> 模拟执行完成
+[SUCCESS] 步骤完成: Git Pull
+
+========== 阶段: 编译构建 ==========
+[STEP] 执行: 编译 (SHELL)
+$ echo Building...
+> 模拟执行完成
+[SUCCESS] 步骤完成: 编译
+
+========== 阶段: 单元测试 ==========
+[STEP] 执行: 执行测试 (TEST)
+[TEST] 执行单元测试...
+[TEST] 测试完成: 48 passed, 0 failed
+[SUCCESS] 步骤完成: 执行测试
+
+========== 阶段: Docker 构建 ==========
+[STEP] 执行: 构建镜像 (DOCKER_BUILD)
+[DOCKER] 构建镜像: admin-web:latest
+[DOCKER] 镜像构建完成
+[SUCCESS] 步骤完成: 构建镜像
+
+[STEP] 执行: 推送镜像 (DOCKER_PUSH)
+[DOCKER] 推送镜像到镜像仓库...
+[DOCKER] 镜像推送完成
+[SUCCESS] 步骤完成: 推送镜像
+
+========== 阶段: K8s 部署 ==========
+[STEP] 执行: 部署到集群 (K8S_DEPLOY)
+[K8S] 部署到 Kubernetes 集群...
+[K8S] kubectl apply -f deployment.yaml
+[K8S] 部署完成，服务已就绪
+[SUCCESS] 步骤完成: 部署到集群
+
+
+[INFO] 构建完成！耗时: 8317ms

@@ -1,0 +1,70 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: devops-platform
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/devops_platform?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: Dearkoma.962464
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          batch_size: 20
+    open-in-view: false
+
+  websocket:
+    allowed-origins: "*"
+
+logging:
+  level:
+    com.devops: INFO
+    org.springframework: INFO
+    org.hibernate.SQL: DEBUG
+  file:
+    name: ./data/logs/devops-platform.log
+
+# DevOps 平台自定义配置
+devops:
+  pipeline:
+    workspace-dir: ./data/workspace
+    log-dir: ./data/logs
+    # 模拟模式（true=不执行真实命令，用延迟模拟；false=真正执行 Shell/Docker/kubectl 命令）
+    simulation-mode: false
+    # Shell 执行器（Windows 用 "cmd /c"，Linux/Mac 用 "bash -c"）
+    shell:
+      command: cmd /c
+    # Docker 镜像仓库地址（为空则使用本地镜像名）
+    docker:
+      registry: ""
+    # K8s 部署命名空间
+    k8s:
+      namespace: devops
+    # 单步执行超时时间（毫秒，默认 10 分钟）
+    timeout-ms: 600000
+  # JWT
+  jwt:
+    secret: ZGV2b3BzLXBsYXRmb3JtLWp3dC1zZWNyZXQta2V5LTIwMjYtMDEtMDEtc3VwZXItc2VjdXJl
+    expiration: 86400000  # 24 小时（毫秒）
+
+  # 默认登录
+  admin:
+    default-username: admin
+    default-password: admin123
+    default-email: admin@devops.local

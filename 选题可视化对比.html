@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>软件工程专业毕业设计选题方案</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f5f7fa;
+    color: #2c3e50;
+    line-height: 1.6;
+    padding: 24px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  header {
+    text-align: center;
+    margin-bottom: 32px;
+    padding: 32px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(102, 126, 234, 0.25);
+  }
+  header h1 { font-size: 28px; margin-bottom: 8px; }
+  header p { opacity: 0.92; font-size: 15px; }
+  .filters {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .filter-btn {
+    padding: 8px 18px;
+    border: 1px solid #dcdfe6;
+    background: #fff;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+    color: #606266;
+  }
+  .filter-btn:hover { border-color: #667eea; color: #667eea; }
+  .filter-btn.active {
+    background: #667eea;
+    color: #fff;
+    border-color: #667eea;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 20px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    transition: all 0.25s;
+    border-top: 4px solid #667eea;
+    display: flex;
+    flex-direction: column;
+  }
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 28px rgba(0,0,0,0.12);
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+  .card-num {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px; flex-shrink: 0;
+  }
+  .card-tag {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: #ecf0f5;
+    color: #606266;
+    white-space: nowrap;
+  }
+  .card h3 {
+    font-size: 17px;
+    color: #1f2d3d;
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }
+  .card-bg {
+    font-size: 13px;
+    color: #606266;
+    margin-bottom: 14px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .meta {
+    display: flex;
+    gap: 12px;
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+  .meta-item { display: flex; align-items: center; gap: 4px; }
+  .stars { color: #f7ba2a; letter-spacing: 1px; }
+  .card-section {
+    margin-bottom: 10px;
+    font-size: 13px;
+  }
+  .card-section .label {
+    color: #909399;
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+  .tech-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+  .tech-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: #f0f2f5;
+    border-radius: 8px;
+    color: #606266;
+  }
+  .innov { color: #67c23a; }
+  .footer-note {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed #ebeef5;
+    font-size: 12px;
+    color: #909399;
+  }
+  .footer-note b { color: #667eea; }
+  .hidden { display: none !important; }
+  .recommend {
+    margin-top: 36px;
+    background: #fff;
+    border-radius: 14px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  .recommend h2 {
+    font-size: 20px; margin-bottom: 16px; color: #1f2d3d;
+    border-left: 4px solid #667eea; padding-left: 12px;
+  }
+  .rec-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .rec-table th, .rec-table td {
+    padding: 10px 12px; text-align: left; border-bottom: 1px solid #ebeef5;
+  }
+  .rec-table th { background: #f5f7fa; color: #606266; font-weight: 600; }
+  .rec-table tr:hover { background: #fafbfc; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>软件工程专业毕业设计选题方案</h1>
+    <p>8 个主流方向选题 · 涵盖 Web 全栈 / 分布式 / AI / 大数据 / 区块链 / 移动端 / 知识图谱 / 云原生</p>
+  </header>
+
+  <div class="filters">
+    <button class="filter-btn active" data-filter="all">全部选题</button>
+    <button class="filter-btn" data-filter="easy">难度较低</button>
+    <button class="filter-btn" data-filter="mid">中等难度</button>
+    <button class="filter-btn" data-filter="hard">高难度挑战</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="recommend">
+    <h2>选题选择建议</h2>
+    <table class="rec-table">
+      <thead>
+        <tr><th>求职方向</th><th>推荐选题</th><th>建议</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Java 后端开发</td><td>选题一、选题二</td><td>选题一夯实基础，选题二冲优秀</td></tr>
+        <tr><td>前端开发</td><td>选题一、选题六</td><td>全栈 + 跨平台移动端</td></tr>
+        <tr><td>算法工程师</td><td>选题三、选题七</td><td>推荐系统 + 知识图谱</td></tr>
+        <tr><td>大数据开发</td><td>选题五</td><td>大数据 + 时序预测</td></tr>
+        <tr><td>运维 / SRE</td><td>选题八</td><td>云原生 + DevOps</td></tr>
+        <tr><td>移动端开发</td><td>选题六</td><td>React Native 跨平台</td></tr>
+        <tr><td>区块链开发</td><td>选题四</td><td>智能合约 + 存证</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const topics = [
+  {
+    num: 1, level: "easy", tag: "Web 全栈", difficulty: 3, workload: "中",
+    title: "基于 Spring Boot + Vue 的在线教育平台",
+    bg: "在线学习已成为重要学习方式，平台能突破时间空间限制，实现优质教育资源高效共享。涵盖课程管理、在线学习、互动答疑、数据分析等功能。",
+    func: ["用户管理（三角色权限）", "课程管理与视频播放", "在线学习断点续学", "互动答疑与讨论区", "作业考试与自动批改", "学习数据看板分析"],
+    tech: ["Spring Boot", "Vue 3", "MySQL", "Redis", "Docker"],
+    innov: "学习行为分析生成个性化建议；视频断点续学与防拖拽；知识点课程图谱可视化",
+    fit: "Java 后端 / 前端开发方向"
+  },
+  {
+    num: 2, level: "hard", tag: "分布式架构", difficulty: 5, workload: "大",
+    title: "基于微服务架构的电商平台",
+    bg: "电商是典型复杂分布式系统，微服务架构通过服务拆分、独立部署解决高并发、高可用、易扩展需求，是大型系统主流架构。",
+    func: ["用户服务与单点登录", "商品与库存管理", "订单状态机", "购物车与合并结算", "支付服务对接", "Elasticsearch 商品搜索", "网关限流鉴权", "服务治理与链路追踪"],
+    tech: ["Spring Cloud Alibaba", "Nacos", "Sentinel", "Seata", "Elasticsearch", "K8s"],
+    innov: "Seata 解决分布式事务；Sentinel 限流熔断；缓存设计与库存防超卖；SkyWalking 全链路追踪",
+    fit: "后端架构 / 微服务开发方向"
+  },
+  {
+    num: 3, level: "mid", tag: "AI + 推荐", difficulty: 4, workload: "中大",
+    title: "基于协同过滤与深度学习的个性化推荐系统",
+    bg: "推荐系统是提升用户体验和商业价值的关键技术。传统协同过滤存在冷启动、数据稀疏问题，结合深度学习可显著提升推荐效果。",
+    func: ["用户行为日志采集", "UserCF / ItemCF 协同过滤", "矩阵分解 ALS", "Wide & Deep / DeepFM 深度模型", "冷启动处理", "实时 + 离线推荐", "算法效果评估"],
+    tech: ["TensorFlow", "PyTorch", "Spark MLlib", "FastAPI", "Vue"],
+    innov: "多算法对比实验评估；混合推荐缓解冷启动；实时 + 离线双塔架构",
+    fit: "算法工程师 / 数据分析方向"
+  },
+  {
+    num: 4, level: "mid", tag: "区块链", difficulty: 4, workload: "中",
+    title: "基于区块链的电子合同存证系统",
+    bg: "传统电子合同存在易篡改、难追溯、信任成本高问题。区块链不可篡改、去中心化、可追溯特性为电子合同存证提供可信解决方案。",
+    func: ["用户与数字身份管理", "合同起草与模板管理", "在线签署", "合同哈希上链存证", "验真溯源", "智能合约自动执行", "权限与审计追踪"],
+    tech: ["Hyperledger Fabric", "Solidity", "Spring Boot", "IPFS", "Neo4j"],
+    innov: "链上链下协同存储降成本；智能合约自动执行条款；完整存证验真溯源链路",
+    fit: "区块链 / 密码学方向"
+  },
+  {
+    num: 5, level: "mid", tag: "大数据", difficulty: 4, workload: "中大",
+    title: "基于大数据的城市交通流量预测系统",
+    bg: "城市交通拥堵是治理难题，准确预测交通流量对智能交通调度、出行规划意义重大。运用大数据分析与机器学习构建预测模型。",
+    func: ["多源交通数据采集", "HDFS/Hive 数据存储", "时空天气特征工程", "ARIMA / XGBoost / LSTM", "流量热力图大屏", "拥堵预警与绕行推荐"],
+    tech: ["Hadoop", "Spark", "Hive", "TensorFlow", "ECharts"],
+    innov: "多模型对比验证深度学习优势；时空双维度特征建模；Lambda 架构实时 + 离线",
+    fit: "大数据 / 时序预测方向"
+  },
+  {
+    num: 6, level: "easy", tag: "移动端", difficulty: 3, workload: "中",
+    title: "基于 React Native 的校园互助服务 App",
+    bg: "校园存在大量碎片化需求，如跑腿代取、二手交易、技能互助、拼车出行。整合多种互助场景的校园 App 能提升生活便利性。",
+    func: ["学号认证与信用评分", "分类需求发布", "附近需求一键接单", "WebSocket 实时聊天", "模拟担保支付", "推送通知", "信用等级体系"],
+    tech: ["React Native", "Node.js", "MongoDB", "Redis", "Socket.IO", "高德地图"],
+    innov: "学号认证 + 信用体系构建可信生态；LBS 附近需求智能推荐；担保交易保障权益",
+    fit: "移动端开发 / 产品方向"
+  },
+  {
+    num: 7, level: "hard", tag: "知识图谱 + NLP", difficulty: 5, workload: "大",
+    title: "基于知识图谱的医疗健康智能问答系统",
+    bg: "医疗信息专业性强、普通用户难以准确获取健康知识。知识图谱结构化组织医疗知识，结合 NLP 实现智能问答，社会价值高。",
+    func: ["医疗数据采集", "实体识别（疾病/症状/药物）", "关系抽取", "Neo4j 图谱存储", "意图识别与实体链接", "模板 + 语义混合问答", "图谱可视化检索"],
+    tech: ["Neo4j", "BERT", "HanLP", "FastAPI", "Vue", "ECharts"],
+    innov: "端到端医疗知识图谱构建；规则模板 + 深度学习混合问答；图谱可视化展示关联",
+    fit: "AI / NLP / 知识工程方向"
+  },
+  {
+    num: 8, level: "mid", tag: "云原生运维", difficulty: 4, workload: "中大",
+    title: "基于 Docker + Kubernetes 的 DevOps 持续交付平台",
+    bg: "DevOps 通过自动化构建、测试、部署流程显著提升交付效率与质量，已成为现代软件研发主流实践。",
+    func: ["项目接入与环境管理", "CI/CD 流水线", "K8s 集群编排", "私有镜像仓库", "弹性伸缩与灰度发布", "Prometheus 监控告警", "ELK 日志聚合", "多租户权限审计"],
+    tech: ["Docker", "Kubernetes", "Jenkins", "ArgoCD", "Prometheus", "Grafana"],
+    innov: "GitOps 声明式持续交付；K8s 弹性伸缩与灰度发布；全链路监控可观测性建设",
+    fit: "运维 / SRE / 云原生方向"
+  }
+];
+
+const grid = document.getElementById("grid");
+function star(n) { return "★".repeat(n) + "☆".repeat(5 - n); }
+
+function render(filter) {
+  grid.innerHTML = "";
+  topics.filter(t => filter === "all" || t.level === filter).forEach(t => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-num">${t.num}</div>
+        <span class="card-tag">${t.tag}</span>
+      </div>
+      <h3>${t.title}</h3>
+      <div class="card-bg">${t.bg}</div>
+      <div class="meta">
+        <span class="meta-item">难度 <span class="stars">${star(t.difficulty)}</span></span>
+        <span class="meta-item">工作量：${t.workload}</span>
+      </div>
+      <div class="card-section">
+        <div class="label">核心功能</div>
+        ${t.func.map(f => `<div>· ${f}</div>`).join("")}
+      </div>
+      <div class="card-section">
+        <div class="label">技术栈</div>
+        <div class="tech-tags">${t.tech.map(x => `<span class="tech-tag">${x}</span>`).join("")}</div>
+      </div>
+      <div class="card-section">
+        <div class="label">创新点</div>
+        <div class="innov">${t.innov}</div>
+      </div>
+      <div class="footer-note">适合人群：<b>${t.fit}</b></div>
+    `;
+    grid.appendChild(card);
+  });
+}
+render("all");
+
+document.querySelectorAll(".filter-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    render(btn.dataset.filter);
+  });
+});
+</script>
+</body>
+</html>
