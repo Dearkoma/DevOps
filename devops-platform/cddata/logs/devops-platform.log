@@ -1,0 +1,267 @@
+2026-06-25T01:14:07.853+08:00  INFO 3980 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Starting DevOpsPlatformApplication using Java 21.0.1 with PID 3980 (E:\Dissertation\2\devops-platform\target\classes started by DustStart in E:\Dissertation\2\devops-platform)
+2026-06-25T01:14:07.865+08:00  INFO 3980 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : No active profile set, falling back to 1 default profile: "default"
+2026-06-25T01:14:08.832+08:00  INFO 3980 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-06-25T01:14:08.956+08:00  INFO 3980 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 102 ms. Found 12 JPA repository interfaces.
+2026-06-25T01:14:09.998+08:00  INFO 3980 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-06-25T01:14:10.011+08:00  INFO 3980 --- [devops-platform] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-06-25T01:14:10.011+08:00  INFO 3980 --- [devops-platform] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.17]
+2026-06-25T01:14:10.087+08:00  INFO 3980 --- [devops-platform] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-06-25T01:14:10.088+08:00  INFO 3980 --- [devops-platform] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 2156 ms
+2026-06-25T01:14:10.370+08:00  INFO 3980 --- [devops-platform] [main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-06-25T01:14:10.446+08:00  INFO 3980 --- [devops-platform] [main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-06-25T01:14:10.486+08:00  INFO 3980 --- [devops-platform] [main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-06-25T01:14:10.772+08:00  INFO 3980 --- [devops-platform] [main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-06-25T01:14:10.803+08:00  INFO 3980 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-06-25T01:14:11.032+08:00  INFO 3980 --- [devops-platform] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@78504ce9
+2026-06-25T01:14:11.034+08:00  INFO 3980 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-06-25T01:14:11.124+08:00  WARN 3980 --- [devops-platform] [main] org.hibernate.orm.deprecation            : HHH90000025: MySQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-06-25T01:14:12.366+08:00  INFO 3980 --- [devops-platform] [main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-06-25T01:14:12.576+08:00  INFO 3980 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T01:14:13.188+08:00  INFO 3980 --- [devops-platform] [main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-06-25T01:14:13.715+08:00  INFO 3980 --- [devops-platform] [main] c.devops.platform.service.BuildService   : 日志目录: absoluteLogDir=E:\Dissertation\2\devops-platform\data\logs
+2026-06-25T01:14:13.882+08:00  INFO 3980 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : 使用默认 kubeconfig: C:\Users\Dearkoma\.kube\config
+2026-06-25T01:14:15.010+08:00  WARN 3980 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ❌ Kubernetes 集群连接失败: 无法连接 Kubernetes API Server，请确认 Rancher Desktop 正在运行
+2026-06-25T01:14:15.274+08:00  INFO 3980 --- [devops-platform] [main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2026-06-25T01:14:15.436+08:00  INFO 3980 --- [devops-platform] [main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@2c002f95, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@5f5efbfc, org.springframework.security.web.context.SecurityContextHolderFilter@652f3a8c, org.springframework.security.web.header.HeaderWriterFilter@51406cdd, org.springframework.web.filter.CorsFilter@317c16bd, org.springframework.security.web.authentication.logout.LogoutFilter@25f73ef, com.devops.platform.config.JwtAuthFilter@5b1c32e4, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@6dcf902, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@5308c994, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@6736c73e, org.springframework.security.web.session.SessionManagementFilter@4a716a73, org.springframework.security.web.access.ExceptionTranslationFilter@2d86f17b, org.springframework.security.web.access.intercept.AuthorizationFilter@b1caa00]
+2026-06-25T01:14:15.786+08:00  INFO 3980 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path ''
+2026-06-25T01:14:15.788+08:00  INFO 3980 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : Starting...
+2026-06-25T01:14:15.788+08:00  INFO 3980 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : BrokerAvailabilityEvent[available=true, SimpleBrokerMessageHandler [org.springframework.messaging.simp.broker.DefaultSubscriptionRegistry@3a410524]]
+2026-06-25T01:14:15.788+08:00  INFO 3980 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : Started.
+2026-06-25T01:14:15.796+08:00  INFO 3980 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Started DevOpsPlatformApplication in 8.64 seconds (process running for 9.986)
+2026-06-25T01:14:15.991+08:00  INFO 3980 --- [devops-platform] [main] c.d.p.config.TemplateDataInitializer     : 模板数据已存在，跳过初始化
+2026-06-25T01:14:26.757+08:00  INFO 3980 --- [devops-platform] [http-nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-06-25T01:14:26.758+08:00  INFO 3980 --- [devops-platform] [http-nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-06-25T01:14:26.769+08:00  INFO 3980 --- [devops-platform] [http-nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 8 ms
+2026-06-25T01:15:01.387+08:00  INFO 3980 --- [devops-platform] [http-nio-8080-exec-10] c.devops.platform.service.BuildService   : 已删除构建记录 #37
+2026-06-25T01:15:15.753+08:00  INFO 3980 --- [devops-platform] [MessageBroker-1] o.s.w.s.c.WebSocketMessageBrokerStats    : WebSocketSession[0 current WS(0)-HttpStream(0)-HttpPoll(0), 0 total, 0 closed abnormally (0 connect failure, 0 send limit, 0 transport error)], stompSubProtocol[processed CONNECT(0)-CONNECTED(0)-DISCONNECT(0)], stompBrokerRelay[null], inboundChannel[pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 0], outboundChannel[pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 0], sockJsScheduler[pool size = 6, active threads = 1, queued tasks = 2, completed tasks = 3]
+2026-06-25T01:15:23.726+08:00  INFO 3980 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : Stopping...
+2026-06-25T01:15:23.726+08:00  INFO 3980 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : BrokerAvailabilityEvent[available=false, SimpleBrokerMessageHandler [org.springframework.messaging.simp.broker.DefaultSubscriptionRegistry@3a410524]]
+2026-06-25T01:15:23.726+08:00  INFO 3980 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : Stopped.
+2026-06-25T01:15:23.737+08:00  INFO 3980 --- [devops-platform] [SpringApplicationShutdownHook] j.LocalContainerEntityManagerFactoryBean : Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T01:15:23.738+08:00  INFO 3980 --- [devops-platform] [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2026-06-25T01:15:23.744+08:00  INFO 3980 --- [devops-platform] [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+2026-06-25T10:10:52.433+08:00  INFO 9168 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Starting DevOpsPlatformApplication using Java 21.0.1 with PID 9168 (E:\Dissertation\2\devops-platform\target\classes started by DustStart in E:\Dissertation\2\devops-platform)
+2026-06-25T10:10:52.438+08:00  INFO 9168 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : No active profile set, falling back to 1 default profile: "default"
+2026-06-25T10:10:54.472+08:00  INFO 9168 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-06-25T10:10:54.621+08:00  INFO 9168 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 135 ms. Found 12 JPA repository interfaces.
+2026-06-25T10:10:55.804+08:00  INFO 9168 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-06-25T10:10:55.846+08:00  INFO 9168 --- [devops-platform] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-06-25T10:10:55.846+08:00  INFO 9168 --- [devops-platform] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.17]
+2026-06-25T10:10:55.937+08:00  INFO 9168 --- [devops-platform] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-06-25T10:10:55.938+08:00  INFO 9168 --- [devops-platform] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3350 ms
+2026-06-25T10:10:56.275+08:00  INFO 9168 --- [devops-platform] [main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-06-25T10:10:56.396+08:00  INFO 9168 --- [devops-platform] [main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-06-25T10:10:56.456+08:00  INFO 9168 --- [devops-platform] [main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-06-25T10:10:56.785+08:00  INFO 9168 --- [devops-platform] [main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-06-25T10:10:56.822+08:00  INFO 9168 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-06-25T10:10:57.121+08:00  INFO 9168 --- [devops-platform] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@3eedd0e3
+2026-06-25T10:10:57.124+08:00  INFO 9168 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-06-25T10:10:57.215+08:00  WARN 9168 --- [devops-platform] [main] org.hibernate.orm.deprecation            : HHH90000025: MySQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-06-25T10:10:58.750+08:00  INFO 9168 --- [devops-platform] [main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-06-25T10:10:58.845+08:00  INFO 9168 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:10:59.528+08:00  INFO 9168 --- [devops-platform] [main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-06-25T10:11:00.484+08:00  INFO 9168 --- [devops-platform] [main] c.devops.platform.service.BuildService   : 日志目录: absoluteLogDir=E:\Dissertation\2\devops-platform\data\logs
+2026-06-25T10:11:00.814+08:00  INFO 9168 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : 使用默认 kubeconfig: C:\Users\Dearkoma\.kube\config
+2026-06-25T10:11:02.903+08:00  INFO 9168 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ✅ Kubernetes 集群连接成功，版本获取降级: The field `emulationMajor` in the JSON string is not defined in the `VersionInfo` properties. JSON: {"major":"1","minor":"35","emulationMajor":"1","emulationMinor":"35","minCompatibilityMajor":"1","minCompatibilityMinor":"34","gitVersion":"v1.35.5+k3s1","gitCommit":"6a4781ad53ee5cad273bedcd9462ae36ac97d798","gitTreeState":"clean","buildDate":"2026-05-20T11:15:10Z","goVersion":"go1.25.9","compiler":"gc","platform":"linux/amd64"}
+2026-06-25T10:11:02.904+08:00  INFO 9168 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ✅ Kubernetes 集群连接成功，版本: k3s (兼容)
+2026-06-25T10:11:03.231+08:00  INFO 9168 --- [devops-platform] [main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2026-06-25T10:11:03.453+08:00  INFO 9168 --- [devops-platform] [main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@7454f141, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@17699e35, org.springframework.security.web.context.SecurityContextHolderFilter@2517d499, org.springframework.security.web.header.HeaderWriterFilter@56f2cdb5, org.springframework.web.filter.CorsFilter@5edf9eb1, org.springframework.security.web.authentication.logout.LogoutFilter@36ccc844, com.devops.platform.config.JwtAuthFilter@6df4af5, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@6c9b2d0e, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@6fbe879b, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@2ce1d507, org.springframework.security.web.session.SessionManagementFilter@56e46791, org.springframework.security.web.access.ExceptionTranslationFilter@2f57fc23, org.springframework.security.web.access.intercept.AuthorizationFilter@5793cd84]
+2026-06-25T10:11:03.844+08:00  WARN 9168 --- [devops-platform] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.context.ApplicationContextException: Failed to start bean 'webServerStartStop'
+2026-06-25T10:11:03.848+08:00  INFO 9168 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:11:03.850+08:00  INFO 9168 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2026-06-25T10:11:03.854+08:00  INFO 9168 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+2026-06-25T10:11:03.870+08:00  INFO 9168 --- [devops-platform] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2026-06-25T10:11:03.893+08:00 ERROR 9168 --- [devops-platform] [main] o.s.b.d.LoggingFailureAnalysisReporter   : 
+
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Web server failed to start. Port 8080 was already in use.
+
+Action:
+
+Identify and stop the process that's listening on port 8080 or configure this application to listen on another port.
+
+2026-06-25T10:13:38.753+08:00  INFO 1516 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Starting DevOpsPlatformApplication using Java 21.0.1 with PID 1516 (E:\Dissertation\2\devops-platform\target\classes started by DustStart in E:\Dissertation\2\devops-platform)
+2026-06-25T10:13:38.755+08:00  INFO 1516 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : No active profile set, falling back to 1 default profile: "default"
+2026-06-25T10:13:39.392+08:00  INFO 1516 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-06-25T10:13:39.494+08:00  INFO 1516 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 90 ms. Found 12 JPA repository interfaces.
+2026-06-25T10:13:40.208+08:00  INFO 1516 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-06-25T10:13:40.220+08:00  INFO 1516 --- [devops-platform] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-06-25T10:13:40.220+08:00  INFO 1516 --- [devops-platform] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.17]
+2026-06-25T10:13:40.286+08:00  INFO 1516 --- [devops-platform] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-06-25T10:13:40.287+08:00  INFO 1516 --- [devops-platform] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 1485 ms
+2026-06-25T10:13:40.496+08:00  INFO 1516 --- [devops-platform] [main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-06-25T10:13:40.533+08:00  INFO 1516 --- [devops-platform] [main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-06-25T10:13:40.556+08:00  INFO 1516 --- [devops-platform] [main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-06-25T10:13:40.728+08:00  INFO 1516 --- [devops-platform] [main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-06-25T10:13:40.750+08:00  INFO 1516 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-06-25T10:13:40.862+08:00  INFO 1516 --- [devops-platform] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@335b3d6
+2026-06-25T10:13:40.863+08:00  INFO 1516 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-06-25T10:13:40.899+08:00  WARN 1516 --- [devops-platform] [main] org.hibernate.orm.deprecation            : HHH90000025: MySQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-06-25T10:13:41.735+08:00  INFO 1516 --- [devops-platform] [main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-06-25T10:13:41.774+08:00  INFO 1516 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:13:42.140+08:00  INFO 1516 --- [devops-platform] [main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-06-25T10:13:42.533+08:00  INFO 1516 --- [devops-platform] [main] c.devops.platform.service.BuildService   : 日志目录: absoluteLogDir=E:\Dissertation\2\devops-platform\data\logs
+2026-06-25T10:13:42.655+08:00  INFO 1516 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : 使用默认 kubeconfig: C:\Users\Dearkoma\.kube\config
+2026-06-25T10:13:44.168+08:00  INFO 1516 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ✅ Kubernetes 集群连接成功，版本获取降级: The field `emulationMajor` in the JSON string is not defined in the `VersionInfo` properties. JSON: {"major":"1","minor":"35","emulationMajor":"1","emulationMinor":"35","minCompatibilityMajor":"1","minCompatibilityMinor":"34","gitVersion":"v1.35.5+k3s1","gitCommit":"6a4781ad53ee5cad273bedcd9462ae36ac97d798","gitTreeState":"clean","buildDate":"2026-05-20T11:15:10Z","goVersion":"go1.25.9","compiler":"gc","platform":"linux/amd64"}
+2026-06-25T10:13:44.168+08:00  INFO 1516 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ✅ Kubernetes 集群连接成功，版本: k3s (兼容)
+2026-06-25T10:13:44.328+08:00  INFO 1516 --- [devops-platform] [main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2026-06-25T10:13:44.494+08:00  INFO 1516 --- [devops-platform] [main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@2c6c67e0, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@12046998, org.springframework.security.web.context.SecurityContextHolderFilter@5c7673b8, org.springframework.security.web.header.HeaderWriterFilter@5ecc530, org.springframework.web.filter.CorsFilter@745526a0, org.springframework.security.web.authentication.logout.LogoutFilter@30d72c00, com.devops.platform.config.JwtAuthFilter@19fec3d6, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@4f1d97d8, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@511d31a6, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@4a5d8ae4, org.springframework.security.web.session.SessionManagementFilter@7f74ae13, org.springframework.security.web.access.ExceptionTranslationFilter@33c6625c, org.springframework.security.web.access.intercept.AuthorizationFilter@5d676a02]
+2026-06-25T10:13:44.751+08:00  WARN 1516 --- [devops-platform] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.context.ApplicationContextException: Failed to start bean 'webServerStartStop'
+2026-06-25T10:13:44.755+08:00  INFO 1516 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:13:44.757+08:00  INFO 1516 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2026-06-25T10:13:44.762+08:00  INFO 1516 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+2026-06-25T10:13:44.772+08:00  INFO 1516 --- [devops-platform] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2026-06-25T10:13:44.786+08:00 ERROR 1516 --- [devops-platform] [main] o.s.b.d.LoggingFailureAnalysisReporter   : 
+
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Web server failed to start. Port 8080 was already in use.
+
+Action:
+
+Identify and stop the process that's listening on port 8080 or configure this application to listen on another port.
+
+2026-06-25T10:14:50.916+08:00  INFO 31716 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Starting DevOpsPlatformApplication using Java 21.0.1 with PID 31716 (E:\Dissertation\2\devops-platform\target\classes started by DustStart in E:\Dissertation\2\devops-platform)
+2026-06-25T10:14:50.918+08:00  INFO 31716 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : No active profile set, falling back to 1 default profile: "default"
+2026-06-25T10:14:52.246+08:00  INFO 31716 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-06-25T10:14:52.341+08:00  INFO 31716 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 86 ms. Found 12 JPA repository interfaces.
+2026-06-25T10:14:53.282+08:00  INFO 31716 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-06-25T10:14:53.297+08:00  INFO 31716 --- [devops-platform] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-06-25T10:14:53.297+08:00  INFO 31716 --- [devops-platform] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.17]
+2026-06-25T10:14:53.400+08:00  INFO 31716 --- [devops-platform] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-06-25T10:14:53.401+08:00  INFO 31716 --- [devops-platform] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 2407 ms
+2026-06-25T10:14:53.672+08:00  INFO 31716 --- [devops-platform] [main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-06-25T10:14:53.719+08:00  INFO 31716 --- [devops-platform] [main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-06-25T10:14:53.747+08:00  INFO 31716 --- [devops-platform] [main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-06-25T10:14:53.944+08:00  INFO 31716 --- [devops-platform] [main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-06-25T10:14:53.965+08:00  INFO 31716 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-06-25T10:14:54.119+08:00  INFO 31716 --- [devops-platform] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@775c4054
+2026-06-25T10:14:54.120+08:00  INFO 31716 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-06-25T10:14:54.172+08:00  WARN 31716 --- [devops-platform] [main] org.hibernate.orm.deprecation            : HHH90000025: MySQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-06-25T10:14:55.260+08:00  INFO 31716 --- [devops-platform] [main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-06-25T10:14:55.312+08:00  INFO 31716 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:14:55.759+08:00  INFO 31716 --- [devops-platform] [main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-06-25T10:14:56.327+08:00  INFO 31716 --- [devops-platform] [main] c.devops.platform.service.BuildService   : 日志目录: absoluteLogDir=E:\Dissertation\2\devops-platform\data\logs
+2026-06-25T10:14:56.505+08:00  INFO 31716 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : 使用默认 kubeconfig: C:\Users\Dearkoma\.kube\config
+2026-06-25T10:14:57.802+08:00  INFO 31716 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ✅ Kubernetes 集群连接成功，版本获取降级: The field `emulationMajor` in the JSON string is not defined in the `VersionInfo` properties. JSON: {"major":"1","minor":"35","emulationMajor":"1","emulationMinor":"35","minCompatibilityMajor":"1","minCompatibilityMinor":"34","gitVersion":"v1.35.5+k3s1","gitCommit":"6a4781ad53ee5cad273bedcd9462ae36ac97d798","gitTreeState":"clean","buildDate":"2026-05-20T11:15:10Z","goVersion":"go1.25.9","compiler":"gc","platform":"linux/amd64"}
+2026-06-25T10:14:57.803+08:00  INFO 31716 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ✅ Kubernetes 集群连接成功，版本: k3s (兼容)
+2026-06-25T10:14:58.008+08:00  INFO 31716 --- [devops-platform] [main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2026-06-25T10:14:58.188+08:00  INFO 31716 --- [devops-platform] [main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@5c608988, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@4d979f76, org.springframework.security.web.context.SecurityContextHolderFilter@214d2aa6, org.springframework.security.web.header.HeaderWriterFilter@10e9aa29, org.springframework.web.filter.CorsFilter@559048b3, org.springframework.security.web.authentication.logout.LogoutFilter@684329d1, com.devops.platform.config.JwtAuthFilter@4b9dbf07, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@21384a8e, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@682ec8d, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@471ac7e2, org.springframework.security.web.session.SessionManagementFilter@36ccc844, org.springframework.security.web.access.ExceptionTranslationFilter@2cca4a87, org.springframework.security.web.access.intercept.AuthorizationFilter@b9271b6]
+2026-06-25T10:14:58.491+08:00  WARN 31716 --- [devops-platform] [main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.context.ApplicationContextException: Failed to start bean 'webServerStartStop'
+2026-06-25T10:14:58.495+08:00  INFO 31716 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:14:58.497+08:00  INFO 31716 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2026-06-25T10:14:58.502+08:00  INFO 31716 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+2026-06-25T10:14:58.512+08:00  INFO 31716 --- [devops-platform] [main] .s.b.a.l.ConditionEvaluationReportLogger : 
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2026-06-25T10:14:58.525+08:00 ERROR 31716 --- [devops-platform] [main] o.s.b.d.LoggingFailureAnalysisReporter   : 
+
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Web server failed to start. Port 8080 was already in use.
+
+Action:
+
+Identify and stop the process that's listening on port 8080 or configure this application to listen on another port.
+
+2026-06-25T10:22:39.444+08:00  INFO 2952 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Starting DevOpsPlatformApplication using Java 21.0.1 with PID 2952 (E:\Dissertation\2\devops-platform\target\classes started by DustStart in E:\Dissertation\2\devops-platform)
+2026-06-25T10:22:39.446+08:00  INFO 2952 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : No active profile set, falling back to 1 default profile: "default"
+2026-06-25T10:22:40.572+08:00  INFO 2952 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-06-25T10:22:40.707+08:00  INFO 2952 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 124 ms. Found 12 JPA repository interfaces.
+2026-06-25T10:22:41.874+08:00  INFO 2952 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-06-25T10:22:41.895+08:00  INFO 2952 --- [devops-platform] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-06-25T10:22:41.896+08:00  INFO 2952 --- [devops-platform] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.17]
+2026-06-25T10:22:41.996+08:00  INFO 2952 --- [devops-platform] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-06-25T10:22:41.996+08:00  INFO 2952 --- [devops-platform] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 2484 ms
+2026-06-25T10:22:42.417+08:00  INFO 2952 --- [devops-platform] [main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-06-25T10:22:42.502+08:00  INFO 2952 --- [devops-platform] [main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-06-25T10:22:42.546+08:00  INFO 2952 --- [devops-platform] [main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-06-25T10:22:42.854+08:00  INFO 2952 --- [devops-platform] [main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-06-25T10:22:42.891+08:00  INFO 2952 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-06-25T10:22:43.179+08:00  INFO 2952 --- [devops-platform] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@54496c2d
+2026-06-25T10:22:43.182+08:00  INFO 2952 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-06-25T10:22:43.270+08:00  WARN 2952 --- [devops-platform] [main] org.hibernate.orm.deprecation            : HHH90000025: MySQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-06-25T10:22:44.936+08:00  INFO 2952 --- [devops-platform] [main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-06-25T10:22:45.038+08:00  INFO 2952 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:22:45.767+08:00  INFO 2952 --- [devops-platform] [main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-06-25T10:22:46.617+08:00  INFO 2952 --- [devops-platform] [main] c.devops.platform.service.BuildService   : 日志目录: absoluteLogDir=E:\Dissertation\2\devops-platform\data\logs
+2026-06-25T10:22:46.809+08:00  INFO 2952 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : 使用默认 kubeconfig: C:\Users\Dearkoma\.kube\config
+2026-06-25T10:22:47.905+08:00  WARN 2952 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ❌ Kubernetes 集群连接失败: 无法连接 Kubernetes API Server，请确认 Rancher Desktop 正在运行
+2026-06-25T10:22:48.096+08:00  INFO 2952 --- [devops-platform] [main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2026-06-25T10:22:48.286+08:00  INFO 2952 --- [devops-platform] [main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@6d8d78a, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@14a82ea, org.springframework.security.web.context.SecurityContextHolderFilter@6d69bdcc, org.springframework.security.web.header.HeaderWriterFilter@4f6f6223, org.springframework.web.filter.CorsFilter@2655ccbd, org.springframework.security.web.authentication.logout.LogoutFilter@39894485, com.devops.platform.config.JwtAuthFilter@e62319f, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@71268b8c, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@6697389c, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@62d42eb7, org.springframework.security.web.session.SessionManagementFilter@6d2058b1, org.springframework.security.web.access.ExceptionTranslationFilter@6dcf902, org.springframework.security.web.access.intercept.AuthorizationFilter@6208a618]
+2026-06-25T10:22:48.684+08:00  INFO 2952 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path ''
+2026-06-25T10:22:48.686+08:00  INFO 2952 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : Starting...
+2026-06-25T10:22:48.687+08:00  INFO 2952 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : BrokerAvailabilityEvent[available=true, SimpleBrokerMessageHandler [org.springframework.messaging.simp.broker.DefaultSubscriptionRegistry@5eab49e8]]
+2026-06-25T10:22:48.688+08:00  INFO 2952 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : Started.
+2026-06-25T10:22:48.697+08:00  INFO 2952 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Started DevOpsPlatformApplication in 9.891 seconds (process running for 11.246)
+2026-06-25T10:22:48.967+08:00  INFO 2952 --- [devops-platform] [main] c.d.p.config.TemplateDataInitializer     : 模板数据已存在，跳过初始化
+2026-06-25T10:22:53.698+08:00  INFO 2952 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : Stopping...
+2026-06-25T10:22:53.700+08:00  INFO 2952 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : BrokerAvailabilityEvent[available=false, SimpleBrokerMessageHandler [org.springframework.messaging.simp.broker.DefaultSubscriptionRegistry@5eab49e8]]
+2026-06-25T10:22:53.700+08:00  INFO 2952 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : Stopped.
+2026-06-25T10:22:53.718+08:00  INFO 2952 --- [devops-platform] [SpringApplicationShutdownHook] j.LocalContainerEntityManagerFactoryBean : Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:22:53.721+08:00  INFO 2952 --- [devops-platform] [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2026-06-25T10:22:53.728+08:00  INFO 2952 --- [devops-platform] [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+2026-06-25T10:28:48.454+08:00  INFO 16076 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Starting DevOpsPlatformApplication using Java 21.0.1 with PID 16076 (E:\Dissertation\2\devops-platform\target\classes started by DustStart in E:\Dissertation\2\devops-platform)
+2026-06-25T10:28:48.457+08:00  INFO 16076 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : No active profile set, falling back to 1 default profile: "default"
+2026-06-25T10:28:49.302+08:00  INFO 16076 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-06-25T10:28:49.400+08:00  INFO 16076 --- [devops-platform] [main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 82 ms. Found 12 JPA repository interfaces.
+2026-06-25T10:28:50.320+08:00  INFO 16076 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-06-25T10:28:50.336+08:00  INFO 16076 --- [devops-platform] [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-06-25T10:28:50.336+08:00  INFO 16076 --- [devops-platform] [main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.17]
+2026-06-25T10:28:50.423+08:00  INFO 16076 --- [devops-platform] [main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-06-25T10:28:50.424+08:00  INFO 16076 --- [devops-platform] [main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 1908 ms
+2026-06-25T10:28:50.710+08:00  INFO 16076 --- [devops-platform] [main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-06-25T10:28:50.784+08:00  INFO 16076 --- [devops-platform] [main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-06-25T10:28:50.820+08:00  INFO 16076 --- [devops-platform] [main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-06-25T10:28:51.072+08:00  INFO 16076 --- [devops-platform] [main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-06-25T10:28:51.097+08:00  INFO 16076 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-06-25T10:28:51.312+08:00  INFO 16076 --- [devops-platform] [main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@46d148bd
+2026-06-25T10:28:51.314+08:00  INFO 16076 --- [devops-platform] [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-06-25T10:28:51.375+08:00  WARN 16076 --- [devops-platform] [main] org.hibernate.orm.deprecation            : HHH90000025: MySQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-06-25T10:28:52.418+08:00  INFO 16076 --- [devops-platform] [main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-06-25T10:28:52.486+08:00  INFO 16076 --- [devops-platform] [main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:28:53.021+08:00  INFO 16076 --- [devops-platform] [main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-06-25T10:28:53.537+08:00  INFO 16076 --- [devops-platform] [main] c.devops.platform.service.BuildService   : 日志目录: absoluteLogDir=E:\Dissertation\2\devops-platform\data\logs
+2026-06-25T10:28:53.671+08:00  INFO 16076 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : 使用默认 kubeconfig: C:\Users\Dearkoma\.kube\config
+2026-06-25T10:28:54.565+08:00  WARN 16076 --- [devops-platform] [main] c.d.platform.service.K8sClientService    : ❌ Kubernetes 集群连接失败: 无法连接 Kubernetes API Server，请确认 Rancher Desktop 正在运行
+2026-06-25T10:28:54.794+08:00  INFO 16076 --- [devops-platform] [main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2026-06-25T10:28:54.957+08:00  INFO 16076 --- [devops-platform] [main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@4b6f196c, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@219acda9, org.springframework.security.web.context.SecurityContextHolderFilter@f93030a, org.springframework.security.web.header.HeaderWriterFilter@40052266, org.springframework.web.filter.CorsFilter@455e8356, org.springframework.security.web.authentication.logout.LogoutFilter@26838837, com.devops.platform.config.JwtAuthFilter@395f52ed, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@6b4684b4, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@4920430f, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@5b9037b6, org.springframework.security.web.session.SessionManagementFilter@29dfc14a, org.springframework.security.web.access.ExceptionTranslationFilter@69235eea, org.springframework.security.web.access.intercept.AuthorizationFilter@4ef55aa6]
+2026-06-25T10:28:55.316+08:00  INFO 16076 --- [devops-platform] [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path ''
+2026-06-25T10:28:55.318+08:00  INFO 16076 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : Starting...
+2026-06-25T10:28:55.319+08:00  INFO 16076 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : BrokerAvailabilityEvent[available=true, SimpleBrokerMessageHandler [org.springframework.messaging.simp.broker.DefaultSubscriptionRegistry@19ba5771]]
+2026-06-25T10:28:55.319+08:00  INFO 16076 --- [devops-platform] [main] o.s.m.s.b.SimpleBrokerMessageHandler     : Started.
+2026-06-25T10:28:55.327+08:00  INFO 16076 --- [devops-platform] [main] c.d.platform.DevOpsPlatformApplication   : Started DevOpsPlatformApplication in 7.506 seconds (process running for 8.902)
+2026-06-25T10:28:55.521+08:00  INFO 16076 --- [devops-platform] [main] c.d.p.config.TemplateDataInitializer     : 模板数据已存在，跳过初始化
+2026-06-25T10:29:55.296+08:00  INFO 16076 --- [devops-platform] [MessageBroker-1] o.s.w.s.c.WebSocketMessageBrokerStats    : WebSocketSession[0 current WS(0)-HttpStream(0)-HttpPoll(0), 0 total, 0 closed abnormally (0 connect failure, 0 send limit, 0 transport error)], stompSubProtocol[processed CONNECT(0)-CONNECTED(0)-DISCONNECT(0)], stompBrokerRelay[null], inboundChannel[pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 0], outboundChannel[pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 0], sockJsScheduler[pool size = 6, active threads = 1, queued tasks = 2, completed tasks = 3]
+2026-06-25T10:31:00.923+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-06-25T10:31:00.924+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-06-25T10:31:00.929+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms
+2026-06-25T10:31:11.546+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-7] c.d.platform.service.K8sClientService    : 使用默认 kubeconfig: C:\Users\Dearkoma\.kube\config
+2026-06-25T10:31:12.150+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-7] c.d.platform.service.K8sClientService    : ✅ Kubernetes 集群连接成功，版本获取降级: The field `emulationMajor` in the JSON string is not defined in the `VersionInfo` properties. JSON: {"major":"1","minor":"35","emulationMajor":"1","emulationMinor":"35","minCompatibilityMajor":"1","minCompatibilityMinor":"34","gitVersion":"v1.35.5+k3s1","gitCommit":"6a4781ad53ee5cad273bedcd9462ae36ac97d798","gitTreeState":"clean","buildDate":"2026-05-20T11:15:10Z","goVersion":"go1.25.9","compiler":"gc","platform":"linux/amd64"}
+2026-06-25T10:31:12.150+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-7] c.d.platform.service.K8sClientService    : ✅ Kubernetes 集群连接成功，版本: k3s (兼容)
+2026-06-25T10:31:26.050+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-10] c.devops.platform.service.BuildService   : 已删除构建记录 #38
+2026-06-25T10:33:17.314+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-3] c.devops.platform.service.BuildService   : 已删除构建记录 #39
+2026-06-25T10:35:21.242+08:00  INFO 16076 --- [devops-platform] [http-nio-8080-exec-9] c.devops.platform.service.BuildService   : 已删除构建记录 #40
+2026-06-25T10:35:26.952+08:00  INFO 16076 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : Stopping...
+2026-06-25T10:35:26.952+08:00  INFO 16076 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : BrokerAvailabilityEvent[available=false, SimpleBrokerMessageHandler [org.springframework.messaging.simp.broker.DefaultSubscriptionRegistry@19ba5771]]
+2026-06-25T10:35:26.952+08:00  INFO 16076 --- [devops-platform] [SpringApplicationShutdownHook] o.s.m.s.b.SimpleBrokerMessageHandler     : Stopped.
+2026-06-25T10:35:26.963+08:00  INFO 16076 --- [devops-platform] [SpringApplicationShutdownHook] j.LocalContainerEntityManagerFactoryBean : Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-06-25T10:35:26.965+08:00  INFO 16076 --- [devops-platform] [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2026-06-25T10:35:26.968+08:00  INFO 16076 --- [devops-platform] [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.

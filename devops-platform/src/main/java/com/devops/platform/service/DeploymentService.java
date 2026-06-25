@@ -153,4 +153,21 @@ public class DeploymentService {
             return historyRepository.findByEnvironmentIdOrderByDeployedAtDesc(environmentId);
         }
     }
+
+    /** 删除部署历史记录 */
+    public void deleteDeploymentHistory(Long id) {
+        historyRepository.deleteById(id);
+        log.info("已删除部署历史 #{}", id);
+    }
+
+    /** 删除部署申请（仅允许删除 REJECTED / DEPLOYED 状态） */
+    public void deleteDeploymentRequest(Long id) {
+        DeploymentRequest req = requestRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("部署申请不存在"));
+        if ("PENDING".equals(req.getStatus())) {
+            throw new RuntimeException("待审批的申请不能直接删除，请先拒绝");
+        }
+        requestRepository.delete(req);
+        log.info("已删除部署申请 #{} (status={})", id, req.getStatus());
+    }
 }

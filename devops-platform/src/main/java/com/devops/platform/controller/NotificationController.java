@@ -38,4 +38,20 @@ public class NotificationController {
         notificationService.markAllAsRead(principal.getName());
         return ResponseEntity.ok().build();
     }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteNotification(@PathVariable Long id) {
+        try {
+            notificationService.deleteNotification(id);
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/clear-all")
+    public ResponseEntity<?> deleteAllNotifications(Principal principal) {
+        int count = notificationService.deleteAllNotifications(principal.getName());
+        return ResponseEntity.ok(Map.of("success", true, "deleted", count));
+    }
 }

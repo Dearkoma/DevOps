@@ -1,102 +1,420 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { fetchInstances, fetchInstanceStats, fetchProjectInstances } from '../api'
+import { useLocation } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import {
+  fetchInstances, fetchInstanceStats, fetchStatsByType,
+  fetchAvailability, fetchK8sStatus, reconnectK8s,
+  deleteInstance, fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment
+} from '../api'
+
+function useActivePage() {
+  const { pathname } = useLocation()
+  if (pathname.startsWith('/instances/docker')) return 'docker'
+  if (pathname.startsWith('/instances/k8s'))    return 'k8s'
+  return 'instances'
+}
 
 export default function InstanceList() {
+  const { canManage } = useAuth()
+  const page = useActivePage()
+
+  const [loading, setLoading] = useState(true)
   const [instances, setInstances] = useState([])
   const [stats, setStats] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [statsByType, setStatsByType] = useState(null)
+  const [dockerStatus, setDockerStatus] = useState(null)
+  const [k8sStatus, setK8sStatus] = useState(null)
+  const [reconnecting, setReconnecting] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
-  const load = useCallback(async () => {
+  // K8s Deployments
+  const [deployments, setDeployments] = useState([])
+  const [depLoading, setDepLoading] = useState(false)
+  const [depNamespace, setDepNamespace] = useState('devops')
+  const [depDetail, setDepDetail] = useState(null)
+  const [depDetailLoading, setDepDetailLoading] = useState(false)
+  const [deleteDepTarget, setDeleteDepTarget] = useState(null)
+
+  const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [list, s] = await Promise.all([fetchInstances(), fetchInstanceStats()])
+      const [list, s, st, avail] = await Promise.all([
+        fetchInstances(), fetchInstanceStats(), fetchStatsByType(), fetchAvailability()
+      ])
       setInstances(list || [])
       setStats(s)
+      setStatsByType(st)
+      setDockerStatus(avail?.docker || null)
+      setK8sStatus(avail?.k8s || null)
     } catch (e) { console.error(e) }
-    setLoading(false)
+    finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { loadAll() }, [loadAll])
+  useEffect(() => { const t = setInterval(loadAll, 15000); return () => clearInterval(t) }, [loadAll])
 
-  // Auto-refresh every 10 seconds
+  const loadDeployments = useCallback(async () => {
+    if (!k8sStatus?.connected) return
+    setDepLoading(true)
+    try { const res = await fetchK8sDeployments(depNamespace); setDeployments(res?.deployments || []) }
+    catch { setDeployments([]) }
+    finally { setDepLoading(false) }
+  }, [depNamespace, k8sStatus?.connected])
+
   useEffect(() => {
-    const timer = setInterval(load, 10000)
-    return () => clearInterval(timer)
-  }, [load])
+    if (page === 'k8s' && k8sStatus?.connected) loadDeployments()
+  }, [page, k8sStatus?.connected, loadDeployments])
 
-  if (loading) return <div className="empty-state"><div className="spinner" /></div>
+  const handleReconnect = async () => {
+    setReconnecting(true)
+    try { setK8sStatus(await reconnectK8s()) }
+    catch (e) { setK8sStatus({ connected: false, error: '重连失败: ' + e.message }) }
+    finally { setReconnecting(false) }
+  }
+
+  const handleDeleteInstance = async () => {
+    try { await deleteInstance(deleteTarget.id); setDeleteTarget(null); loadAll() }
+    catch (e) { alert('删除失败：' + e.message) }
+  }
+
+  const viewDepDetail = async (dep) => {
+    setDepDetail({ name: dep.name, data: null }); setDepDetailLoading(true)
+    try { setDepDetail({ name: dep.name, data: await getK8sDeployment(dep.name, depNamespace) }) }
+    catch (e) { setDepDetail({ name: dep.name, data: { error: e.message } }) }
+    finally { setDepDetailLoading(false) }
+  }
+
+  const handleDeleteDeployment = async () => {
+    try { await deleteK8sDeployment(deleteDepTarget.name, depNamespace); setDeleteDepTarget(null); loadDeployments() }
+    catch (e) { alert('删除 K8s Deployment 失败：' + e.message) }
+  }
+
+  if (loading && !dockerStatus && !k8sStatus) return <div className="empty-state"><div className="spinner" /></div>
+
+  const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, canManage, loadAll }
 
   return (
     <>
-      <div className="page-header">
-        <h2>🖥 服务实例</h2>
-        <button className="btn btn-outline btn-sm" onClick={load}>🔄 刷新</button>
-      </div>
+      {page === 'instances' && <AllInstancesView instances={instances} stats={stats} {...shared} />}
+      {page === 'docker'    && <DockerView dockerStatus={dockerStatus} statsByType={statsByType} dockerInstances={instances.filter(i => i.deployType === 'DOCKER')} {...shared} />}
+      {page === 'k8s'       && <K8sView
+        k8sStatus={k8sStatus} reconnecting={reconnecting} handleReconnect={handleReconnect}
+        statsByType={statsByType} k8sInstances={instances.filter(i => i.deployType === 'K8S')}
+        deployments={deployments} depLoading={depLoading}
+        depNamespace={depNamespace} setDepNamespace={setDepNamespace} loadDeployments={loadDeployments}
+        depDetail={depDetail} setDepDetail={setDepDetail}
+        depDetailLoading={depDetailLoading} viewDepDetail={viewDepDetail}
+        deleteDepTarget={deleteDepTarget} setDeleteDepTarget={setDeleteDepTarget}
+        handleDeleteDeployment={handleDeleteDeployment}
+        {...shared}
+      />}
 
-      {stats && (
+      {/* 删除实例弹窗 */}
+      {deleteTarget && <DeleteInstanceModal target={deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDeleteInstance} />}
+
+      {/* 删除 K8s Deployment 弹窗 */}
+      {deleteDepTarget && <DeleteDeploymentModal target={deleteDepTarget} namespace={depNamespace} onClose={() => setDeleteDepTarget(null)} onConfirm={handleDeleteDeployment} />}
+    </>
+  )
+}
+
+// ==================== 弹窗组件 ====================
+function DeleteInstanceModal({ target, onClose, onConfirm }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <h3>🗑 确认删除服务实例</h3>
+        <div style={{ marginTop: 16, fontSize: 14, color: '#374151', lineHeight: 1.8 }}>
+          <p>即将删除以下实例记录：</p>
+          <div style={{ background: '#f3f4f6', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+            <div><strong>实例名称：</strong>{target.instanceName}</div>
+            <div><strong>项目：</strong>{target.projectName || `#${target.projectId}`}</div>
+            <div><strong>部署类型：</strong>{target.deployType}</div>
+            <div><strong>状态：</strong>{target.status}</div>
+          </div>
+          <p style={{ color: '#ef4444', fontSize: 12 }}>⚠️ 此操作仅删除平台中的记录，不会停止正在运行的容器/Pod。</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="btn btn-outline" onClick={onClose}>取消</button>
+          <button className="btn btn-danger" onClick={onConfirm}>确认删除</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DeleteDeploymentModal({ target, namespace, onClose, onConfirm }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <h3>🗑 确认删除 K8s Deployment</h3>
+        <div style={{ marginTop: 16, fontSize: 14, color: '#374151', lineHeight: 1.8 }}>
+          <p>即将删除：</p>
+          <div style={{ background: '#f3f4f6', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+            <div><strong>名称：</strong>{target.name}</div>
+            <div><strong>命名空间：</strong>{namespace}</div>
+            <div><strong>副本数：</strong>{target.replicas}</div>
+          </div>
+          <p style={{ color: '#ef4444', fontSize: 12 }}>⚠️ 此操作将从 K8s 集群中永久删除该 Deployment 及 Pod，不可恢复！</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="btn btn-outline" onClick={onClose}>取消</button>
+          <button className="btn btn-danger" onClick={onConfirm}>确认删除</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ==================== 页面视图 ====================
+function AllInstancesView({ instances, stats, setDeleteTarget, loadAll }) {
+  return (
+    <>
+      <div className="page-header">
+        <h2>🖥 全部服务实例</h2>
+        <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 刷新</button>
+      </div>
+      {stats && <StatsRow stats={stats} />}
+      <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} />
+    </>
+  )
+}
+
+function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, loadAll }) {
+  const dStats = statsByType?.docker
+  return (
+    <>
+      <div className="page-header">
+        <h2>🐳 Docker 服务实例</h2>
+        <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 刷新</button>
+      </div>
+      {dockerStatus && <StatusBar connected={dockerStatus.connected} label="Docker" version={dockerStatus.version} message={dockerStatus.message} error={dockerStatus.error} />}
+      {dockerStatus?.connected && (
         <div className="stats-grid" style={{ marginBottom: 16 }}>
-          <div className="stats-card">
-            <div className="stats-label">实例总数</div>
-            <div className="stats-value">{stats.total}</div>
-          </div>
-          <div className="stats-card">
-            <div className="stats-label">运行中</div>
-            <div className="stats-value" style={{ color: '#22c55e' }}>{stats.running}</div>
-          </div>
-          <div className="stats-card">
-            <div className="stats-label">健康</div>
-            <div className="stats-value" style={{ color: '#22c55e' }}>{stats.healthy}</div>
-          </div>
-          <div className="stats-card">
-            <div className="stats-label">异常</div>
-            <div className="stats-value" style={{ color: '#ef4444' }}>{stats.unhealthy}</div>
-          </div>
+          <StatCard label="容器总数" value={dockerStatus.totalContainers ?? 0} />
+          <StatCard label="运行中容器" value={dockerStatus.containersRunning ?? 0} color="#22c55e" />
+          <StatCard label="已停止容器" value={dockerStatus.containersStopped ?? 0} color="#f59e0b" />
+          <StatCard label="镜像数" value={dockerStatus.images ?? 0} color="#6366f1" />
         </div>
       )}
+      {dStats && <TypeStats summary={dStats} label="Docker" />}
+      <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} />
+    </>
+  )
+}
 
-      <div className="card" style={{ padding: 0 }}>
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>实例名称</th><th>项目</th><th>状态</th><th>健康</th>
-                <th>镜像</th><th>CPU</th><th>内存</th>
-                <th>重启次数</th><th>最后心跳</th>
+function K8sView({
+  k8sStatus, reconnecting, handleReconnect, statsByType, k8sInstances,
+  deployments, depLoading, depNamespace, setDepNamespace, loadDeployments,
+  depDetail, setDepDetail, depDetailLoading, viewDepDetail,
+  deleteDepTarget, setDeleteDepTarget, handleDeleteDeployment,
+  setDeleteTarget, loadAll, canManage,
+}) {
+  const kStats = statsByType?.k8s
+  return (
+    <>
+      <div className="page-header">
+        <h2>☸️ Kubernetes 服务实例</h2>
+        <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 刷新</button>
+      </div>
+      <StatusBar
+        connected={k8sStatus?.connected} label="Kubernetes" version={k8sStatus?.serverVersion}
+        message={!k8sStatus?.connected ? k8sStatus?.error : undefined} error={k8sStatus?.error}
+        onReconnect={handleReconnect} reconnecting={reconnecting}
+        extra={k8sStatus?.connected && k8sStatus?.pods?.length > 0 && <PodList pods={k8sStatus.pods} count={k8sStatus.podCount} />}
+      />
+      {kStats && <TypeStats summary={kStats} label="K8s" />}
+      <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} />
+      {k8sStatus?.connected && <DeploymentPanel
+        deployments={deployments} depLoading={depLoading}
+        depNamespace={depNamespace} setDepNamespace={setDepNamespace} loadDeployments={loadDeployments}
+        depDetail={depDetail} setDepDetail={setDepDetail} depDetailLoading={depDetailLoading}
+        viewDepDetail={viewDepDetail}
+        setDeleteDepTarget={setDeleteDepTarget} canManage={canManage}
+      />}
+      {deleteDepTarget && <DeleteDeploymentModal target={deleteDepTarget} namespace={depNamespace} onClose={() => setDeleteDepTarget(null)} onConfirm={handleDeleteDeployment} />}
+    </>
+  )
+}
+
+// ==================== 小组件 ====================
+function StatsRow({ stats }) {
+  return (
+    <div className="stats-grid" style={{ marginBottom: 16 }}>
+      <StatCard label="实例总数" value={stats.total} />
+      <StatCard label="运行中" value={stats.running} color="#22c55e" />
+      <StatCard label="健康" value={stats.healthy} color="#22c55e" />
+      <StatCard label="异常" value={stats.unhealthy} color="#ef4444" />
+    </div>
+  )
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div className="stat-card">
+      <div className="label">{label}</div>
+      <div className="value" style={color ? { color } : undefined}>{value}</div>
+    </div>
+  )
+}
+
+function TypeStats({ summary, label }) {
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h4 style={{ margin: '0 0 12px 0', fontSize: 14, color: '#374151' }}>平台注册的 {label} 实例</h4>
+      <div style={{ display: 'flex', gap: 24, fontSize: 13, color: '#6b7280' }}>
+        <span>总数：<strong style={{ color: '#111827' }}>{summary.total}</strong></span>
+        <span>运行：<strong style={{ color: '#22c55e' }}>{summary.running}</strong></span>
+        <span>已停止：<strong style={{ color: '#f59e0b' }}>{summary.stopped}</strong></span>
+        <span>健康：<strong style={{ color: '#22c55e' }}>{summary.healthy}</strong></span>
+        <span>异常：<strong style={{ color: '#ef4444' }}>{summary.unhealthy}</strong></span>
+      </div>
+    </div>
+  )
+}
+
+function PodList({ pods, count }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontWeight: 600, fontSize: 12, color: '#374151', marginBottom: 6 }}>已发现的 Pod ({count}):</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {pods.map((pod, i) => (
+          <span key={i} className="badge" style={{
+            background: pod.status === 'Running' ? '#dcfce7' : '#fef9c3',
+            color: pod.status === 'Running' ? '#166534' : '#92400e',
+            fontSize: 11, padding: '3px 8px',
+            border: '1px solid ' + (pod.status === 'Running' ? '#86efac' : '#fde68a'),
+          }}>{pod.name} <span style={{ marginLeft: 4, opacity: 0.7 }}>({pod.status === 'Running' ? '运行中' : pod.status})</span></span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function InstanceTable({ instances, showType, setDeleteTarget }) {
+  if (instances.length === 0) return (
+    <div className="card"><div className="empty-state"><div className="icon">📦</div><p>暂无服务实例</p><p style={{ fontSize: 12 }}>构建并部署后，服务实例将自动注册</p></div></div>
+  )
+  return (
+    <div className="card" style={{ padding: 0 }}>
+      <div className="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>实例名称</th><th>项目</th>
+              {showType && <th>部署类型</th>}
+              <th>状态</th><th>健康</th><th>镜像</th><th>CPU</th><th>内存</th><th>最后心跳</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {instances.map(inst => (
+              <tr key={inst.id}>
+                <td style={{ fontWeight: 600 }}>{inst.instanceName}</td>
+                <td style={{ color: '#6b7280' }}>{inst.projectName || `#${inst.projectId}`}</td>
+                {showType && (
+                  <td><span className={`badge ${inst.deployType === 'K8S' ? 'badge-admin' : 'badge-developer'}`} style={{ fontSize: 11 }}>{inst.deployType === 'K8S' ? '☸️ K8s' : '🐳 Docker'}</span></td>
+                )}
+                <td><BadgeStatus val={inst.status} /></td>
+                <td><BadgeHealth val={inst.healthStatus} /></td>
+                <td style={{ fontSize: 12 }}>{inst.imageName}:{inst.imageTag || 'latest'}</td>
+                <td>{inst.cpuUsage ? inst.cpuUsage.toFixed(1) + '%' : '-'}</td>
+                <td>{inst.memoryUsage ? inst.memoryUsage.toFixed(0) + 'MB' : '-'}</td>
+                <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
+                <td><button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(inst)}>🗑 删除</button></td>
               </tr>
-            </thead>
-            <tbody>
-              {instances.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: '#9ca3af' }}>
-                  暂无服务实例（构建并 K8s 部署后会自动注册）
-                </td></tr>
-              ) : (
-                instances.map(inst => (
-                  <tr key={inst.id}>
-                    <td style={{ fontWeight: 600 }}>{inst.instanceName}</td>
-                    <td style={{ color: '#6b7280' }}>{inst.projectName || `#${inst.projectId}`}</td>
-                    <td>
-                      <span className={`badge badge-${inst.status?.toLowerCase() === 'running' ? 'success' : 'failed'}`}>
-                        {inst.status === 'RUNNING' ? '运行中' : inst.status}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge badge-${inst.healthStatus?.toLowerCase() === 'healthy' ? 'success' : inst.healthStatus?.toLowerCase() === 'unhealthy' ? 'failed' : 'running'}`}>
-                        {inst.healthStatus === 'HEALTHY' ? '健康' :
-                         inst.healthStatus === 'UNHEALTHY' ? '异常' : inst.healthStatus || '未知'}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: 12 }}>{inst.imageName}:{inst.imageTag || 'latest'}</td>
-                    <td>{inst.cpuUsage ? inst.cpuUsage.toFixed(1) + '%' : '-'}</td>
-                    <td>{inst.memoryUsage ? inst.memoryUsage.toFixed(0) + 'MB' : '-'}</td>
-                    <td>{inst.restartCount || 0}</td>
-                    <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function BadgeStatus({ val }) {
+  const map = { RUNNING: ['success', '运行中'], STOPPED: ['running', '已停止'] }
+  const [cls, label] = map[val] || ['failed', val || '-']
+  return <span className={`badge badge-${cls}`}>{label}</span>
+}
+
+function BadgeHealth({ val }) {
+  const map = { HEALTHY: ['success', '健康'], UNHEALTHY: ['failed', '异常'] }
+  const [cls, label] = map[val] || ['running', val || '未知']
+  return <span className={`badge badge-${cls}`}>{label}</span>
+}
+
+function StatusBar({ connected, label, message, version, extra, error, onReconnect, reconnecting }) {
+  return (
+    <div className="card" style={{ marginBottom: 16, borderLeft: `4px solid ${connected ? '#22c55e' : '#ef4444'}`, background: connected ? '#f0fdf4' : '#fef2f2' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <span style={{ fontSize: 20 }}>{connected ? '✅' : '❌'}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: connected ? '#166534' : '#991b1b', marginBottom: 4 }}>
+            {connected ? `✅ ${label}已连接${version ? ' · 版本 ' + version : ''}` : `❌ ${label}未连接`}
+          </div>
+          {message && <div style={{ fontSize: 13, color: connected ? '#166534' : '#991b1b', lineHeight: 1.6 }}>{message}</div>}
+          {extra}
+          {error && !connected && (
+            <div style={{ marginTop: 8, padding: '8px 12px', background: '#fffbeb', borderRadius: 6, border: '1px solid #fde68a', fontSize: 12, color: '#92400e', whiteSpace: 'pre-wrap' }}>
+              <strong>💡 诊断信息：</strong><div style={{ marginTop: 4 }}>{error}</div>
+            </div>
+          )}
+        </div>
+        {!connected && onReconnect && (
+          <button className="btn btn-primary btn-sm" onClick={onReconnect} disabled={reconnecting} style={{ whiteSpace: 'nowrap' }}>{reconnecting ? '⏳ 连接中...' : '🔄 重新连接'}</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DeploymentPanel({ deployments, depLoading, depNamespace, setDepNamespace, loadDeployments, depDetail, setDepDetail, depDetailLoading, viewDepDetail, setDeleteDepTarget, canManage }) {
+  return (
+    <div className="card" style={{ padding: 0, marginTop: 24 }}>
+      <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb' }}>
+        <h4 style={{ margin: 0, fontSize: 14 }}>☸️ K8s Deployments</h4>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ fontSize: 12, color: '#6b7280' }}>
+            命名空间: <input value={depNamespace} onChange={e => setDepNamespace(e.target.value)} style={{ padding: '3px 8px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 12, width: 110, marginLeft: 4 }} />
+          </label>
+          <button className="btn btn-outline btn-sm" onClick={loadDeployments} style={{ fontSize: 11 }}>查询</button>
         </div>
       </div>
-    </>
+      <div className="table-container">
+        {depLoading ? <div style={{ padding: 32, textAlign: 'center' }}><div className="spinner" /></div>
+          : deployments.length === 0 ? <div style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}><div style={{ fontSize: 36, marginBottom: 8 }}>📭</div><div>命名空间 <code>{depNamespace}</code> 中暂无 Deployment</div></div>
+          : (
+            <table>
+              <thead><tr><th>名称</th><th>命名空间</th><th>期望副本</th><th>就绪副本</th><th>镜像</th><th>操作</th></tr></thead>
+              <tbody>
+                {deployments.map((dep, i) => (
+                  <React.Fragment key={dep.name || i}>
+                    <tr>
+                      <td style={{ fontWeight: 600 }}>{dep.name}</td>
+                      <td style={{ color: '#6b7280', fontSize: 12 }}>{dep.namespace || depNamespace}</td>
+                      <td>{dep.replicas ?? '-'}</td>
+                      <td><span style={{ color: (dep.readyReplicas || 0) >= (dep.replicas || 0) ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{dep.readyReplicas ?? 0}</span>/{dep.replicas ?? '-'}</td>
+                      <td style={{ fontSize: 12 }}>{dep.image || '-'}</td>
+                      <td>
+                        <div className="btn-group">
+                          <button className="btn btn-outline btn-sm" onClick={() => depDetail?.name === dep.name ? setDepDetail(null) : viewDepDetail(dep)}>{depDetail?.name === dep.name ? '▲ 收起' : '📋 详情'}</button>
+                          {canManage && <button className="btn btn-danger btn-sm" onClick={() => setDeleteDepTarget(dep)}>🗑 删除</button>}
+                        </div>
+                      </td>
+                    </tr>
+                    {depDetail?.name === dep.name && (
+                      <tr><td colSpan={6} style={{ background: '#f9fafb', padding: '12px 20px' }}>
+                        {depDetailLoading ? <div className="spinner" style={{ margin: '8px auto' }} />
+                          : depDetail.data?.error ? <div style={{ color: '#dc2626', fontSize: 13 }}>❌ {depDetail.data.error}</div>
+                          : <div style={{ fontSize: 12, lineHeight: 1.8 }}>{depDetail.data && Object.entries(depDetail.data).filter(([k]) => k !== 'connected').map(([k, v]) => <div key={k}><strong>{k}:</strong>&nbsp;{typeof v === 'object' ? <code style={{ fontSize: 11, background: '#e5e7eb', padding: '2px 6px', borderRadius: 4 }}>{JSON.stringify(v, null, 2)}</code> : String(v)}</div>)}</div>
+                        }
+                      </td></tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </div>
+    </div>
   )
 }

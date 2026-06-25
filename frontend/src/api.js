@@ -99,6 +99,8 @@ export const triggerBuild = (projectId, pipelineId, buildParams = null, branch =
     body: JSON.stringify({ buildParams, branch })
   })
 export const cancelBuild = (id) => request(`/builds/${id}/cancel`, { method: 'DELETE' })
+export const deleteBuild = (id) => request(`/builds/${id}`, { method: 'DELETE' })
+export const checkWorkspace = (projectId) => request(`/builds/workspace-check?projectId=${projectId}`)
 
 // ==================== Environments ====================
 export const fetchEnvironments = () => request('/environments')
@@ -150,6 +152,15 @@ export const fetchInstances = () => request('/instances')
 export const fetchInstanceStats = () => request('/instances/stats')
 export const fetchProjectInstances = (projectId) => request(`/instances/project/${projectId}`)
 export const updateInstanceHealth = (id, data) => request(`/instances/${id}/health`, { method: 'PUT', body: JSON.stringify(data) })
+export const fetchK8sStatus = () => request('/instances/k8s-status')
+export const reconnectK8s = () => request('/instances/k8s-reconnect', { method: 'POST' })
+export const fetchK8sNamespaces = () => request('/instances/k8s-namespaces')
+export const deleteInstance = (id) => request(`/instances/${id}`, { method: 'DELETE' })
+export const fetchAvailability = () => request('/instances/availability')
+export const fetchStatsByType = () => request('/instances/stats-by-type')
+export const fetchK8sDeployments = (namespace = 'devops') => request(`/instances/k8s/deployments?namespace=${namespace}`)
+export const getK8sDeployment = (name, namespace = 'devops') => request(`/instances/k8s/deployments/${name}?namespace=${namespace}`)
+export const deleteK8sDeployment = (name, namespace = 'devops') => request(`/instances/k8s/deployments/${name}?namespace=${namespace}`, { method: 'DELETE' })
 
 // ==================== Templates ====================
 export const fetchTemplates = (type) => request(`/templates${type ? '?type=' + type : ''}`)

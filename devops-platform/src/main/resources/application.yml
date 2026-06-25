@@ -20,7 +20,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -36,9 +36,9 @@ logging:
   level:
     com.devops: INFO
     org.springframework: INFO
-    org.hibernate.SQL: DEBUG
+    org.hibernate.SQL: WARN
   file:
-    name: ./data/logs/devops-platform.log
+    name: ./cddata/logs/devops-platform.log
 
 # DevOps 平台自定义配置
 devops:
@@ -53,9 +53,22 @@ devops:
     # Docker 镜像仓库地址（为空则使用本地镜像名）
     docker:
       registry: ""
-    # K8s 部署命名空间
+      # Docker 命令（docker / nerdctl / podman）
+      # Rancher Desktop 开启 moby 容器引擎后直接用 docker
+      command: docker
+      # Docker 不可用时是否跳过该阶段（true=跳过并继续, false=标记构建失败）
+      skip-if-unavailable: true
+    # K8s 部署配置
     k8s:
+      # 是否启用 K8s 集成（false 时跳过连接检测）
+      enabled: true
+      # 部署命名空间
       namespace: devops
+      # kubectl 不可用时是否跳过该阶段（true=跳过并继续, false=标记构建失败）
+      skip-if-unavailable: true
+      # kubeconfig 文件路径（留空则自动搜索: KUBECONFIG环境变量 > ~/.kube/config > ~/.rancher/kube/config）
+      # Windows Rancher 用户: 从 Rancher UI 下载 kubeconfig 放到 C:\Users\<用户名>\.kube\config 即可
+      kubeconfig-path:
     # 单步执行超时时间（毫秒，默认 10 分钟）
     timeout-ms: 600000
   # JWT

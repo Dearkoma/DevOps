@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { fetchBuilds, fetchBuildLog, triggerBuild, cancelBuild, fetchProjects, fetchPipelines } from '../api'
+import { fetchBuilds, fetchBuildLog, triggerBuild, cancelBuild, deleteBuild, fetchProjects, fetchPipelines } from '../api'
 
 const STATUS_MAP = { SUCCESS: '成功', FAILED: '失败', RUNNING: '运行中', CANCELLED: '已取消' }
 
 export default function BuildList() {
+  const navigate = useNavigate()
   const { canTrigger, canManage } = useAuth()
   const [builds, setBuilds] = useState([])
   const [projects, setProjects] = useState([])
@@ -19,6 +21,8 @@ export default function BuildList() {
   const [triggerProject, setTriggerProject] = useState('')
   const [triggerPipeline, setTriggerPipeline] = useState('')
   const [triggerPipeList, setTriggerPipeList] = useState([])
+  const [allPipeList, setAllPipeList] = useState([])  // 全部流水线（含非活跃）
+  const [pipesLoading, setPipesLoading] = useState(false)
   const [triggerVersion, setTriggerVersion] = useState('')
   const [triggerBranch, setTriggerBranch] = useState('')
   const [triggerEnv, setTriggerEnv] = useState('')
@@ -26,23 +30,61 @@ export default function BuildList() {
   // Webhook modal
   const [showWebhook, setShowWebhook] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // Delete confirm modal
+  const [deleteTarget, setDeleteTarget] = useState(null) // build object to delete
+
+  // ===== Log auto-scroll (sticky bottom) =====
+  // logContainerRef   : the scrollable log <div>
+  // stickToBottomRef  : whether to keep following the latest line.
+  //                     Set to true initially and whenever the user is near
+  //                     the bottom; flipped to false when the user scrolls up
+  //                     to read history, so the view stops jumping back to top.
+  const logContainerRef = useRef(null)
+  const stickToBottomRef = useRef(true)
+  // Bump on every logText change so the effect runs even when content is
+  // replaced with an equal-length string (rare, but possible during retransmits).
+  const [logTick, setLogTick] = useState(0)
+
+  // Track user scroll position: stick to bottom unless they scrolled up.
+  const handleLogScroll = useCallback(() => {
+    const el = logContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottomRef.current = distanceFromBottom < 48
+  }, [])
+
+  // Whenever the log text changes, jump to the bottom if we are still
+  // in "follow" mode. This is what stops the view from snapping back to
+  // the top every time the poll writes a new chunk.
+  useEffect(() => {
+    if (!logModal) return
+    const el = logContainerRef.current
+    if (!el) return
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [logText, logTick, logModal])
+
+  // 初始加载 — 显示 spinner；自动刷新与手动刷新 — 静默更新
+  const load = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setLoading(true)
     try {
       const [bList, pList] = await Promise.all([fetchBuilds(undefined, statusFilter), fetchProjects()])
       setBuilds(bList)
       setProjects(pList)
     } catch (e) { console.error(e) }
-    finally { setLoading(false) }
+    finally { if (showSpinner) setLoading(false) }
   }, [statusFilter])
 
-  useEffect(() => { load() }, [load])
+  // 初始加载（仅一次）
+  const initRef = useRef(true)
+  useEffect(() => { load(true) }, [load])
 
-  // Auto-refresh when running builds exist
+  // ===== 静默自动刷新：有运行中构建时每 3 秒更新数据，不触发 loading 状态 =====
   useEffect(() => {
     const hasRunning = builds.some(b => b.status === 'RUNNING')
     if (!hasRunning) return
-    const timer = setInterval(load, 5000)
+    const timer = setInterval(() => load(false), 3000)
     return () => clearInterval(timer)
   }, [builds, load])
 
@@ -55,13 +97,14 @@ export default function BuildList() {
       try {
         const log = await fetchBuildLog(buildId)
         setLogText(log || '')
+        setLogTick(t => t + 1)  // trigger sticky-bottom scroll
         // Check if build finished
         const b = await fetchBuilds().then(bs => bs.find(x => x.id === buildId))
         if (b && b.status !== 'RUNNING') {
           setLogConnected(false)
           clearInterval(logPollRef.current)
           logPollRef.current = null
-          load()
+          load(false)
         }
       } catch {}
     }, 2000)
@@ -78,6 +121,9 @@ export default function BuildList() {
     setLogModal(build)
     setLogConnected(false)
     setLogText('')
+    setLogTick(t => t + 1)
+    // Reset follow mode for the new log: start stuck to the bottom.
+    stickToBottomRef.current = true
     stopLogPolling()
 
     if (build.status === 'RUNNING') {
@@ -85,12 +131,14 @@ export default function BuildList() {
       try {
         const log = await fetchBuildLog(build.id)
         setLogText(log || '')
+        setLogTick(t => t + 1)
       } catch { setLogText('等待日志...') }
       startLogPolling(build.id)
     } else {
       try {
         const log = await fetchBuildLog(build.id)
         setLogText(log || '(empty log)')
+        setLogTick(t => t + 1)
       } catch (e) { setLogText('无法加载日志') }
     }
   }
@@ -100,11 +148,20 @@ export default function BuildList() {
     setLogModal(null)
     setLogText('')
     setLogConnected(false)
+    stickToBottomRef.current = true
   }
+
+  // "Jump to latest" button: force scroll to bottom and resume following.
+  const jumpToLatest = useCallback(() => {
+    stickToBottomRef.current = true
+    const el = logContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [])
 
   // Trigger build
   const handleTrigger = async () => {
-    if (!triggerProject || !triggerPipeline) return alert('请选择项目和水线')
+    if (!triggerProject) return alert('请选择项目')
+    if (!triggerPipeline) return alert('请选择流水线。如该项目暂无流水线，请先前往流水线管理页面创建。')
     try {
       let buildParams = null
       if (triggerVersion || triggerBranch || triggerEnv) {
@@ -116,18 +173,31 @@ export default function BuildList() {
       }
       await triggerBuild(Number(triggerProject), Number(triggerPipeline), buildParams, triggerBranch || null)
       setShowTrigger(false)
+      setTriggerProject(''); setTriggerPipeline(''); setTriggerPipeList([]); setAllPipeList([])
       setTriggerVersion(''); setTriggerBranch(''); setTriggerEnv('')
-      load()
+      load(false)
     } catch (e) { alert('触发失败: ' + e.message) }
   }
 
   const loadPipelines = async (projectId) => {
     setTriggerProject(projectId)
-    if (!projectId) { setTriggerPipeList([]); return }
+    setTriggerPipeline('')
+    if (!projectId) {
+      setTriggerPipeList([])
+      setAllPipeList([])
+      return
+    }
+    setPipesLoading(true)
     try {
       const pipes = await fetchPipelines(projectId)
+      setAllPipeList(pipes)
       setTriggerPipeList(pipes.filter(p => p.status === 'ACTIVE'))
-    } catch { setTriggerPipeList([]) }
+    } catch {
+      setTriggerPipeList([])
+      setAllPipeList([])
+    } finally {
+      setPipesLoading(false)
+    }
   }
 
   // Webhook URL
@@ -178,9 +248,23 @@ export default function BuildList() {
               <option value="RUNNING">运行中</option>
               <option value="CANCELLED">已取消</option>
             </select>
-            <button className="btn btn-outline btn-sm" onClick={load}>🔄 刷新</button>
+            <button className="btn btn-outline btn-sm" onClick={() => load(false)}>🔄 刷新</button>
           </div>
-          {canTrigger && <button className="btn btn-primary" onClick={() => setShowTrigger(true)}>▶ 触发构建</button>}
+          {canTrigger && (
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (projects.length === 0) {
+                  alert('当前没有任何项目，请先在项目管理中创建项目，然后为其配置流水线。')
+                  return
+                }
+                setShowTrigger(true)
+              }}
+              title={projects.length === 0 ? '需要先创建项目' : '触发构建'}
+            >
+              ▶ 触发构建
+            </button>
+          )}
           <button className="btn btn-outline btn-sm" onClick={() => setShowWebhook(true)}>🔗 Webhook</button>
         </div>
       </div>
@@ -244,7 +328,10 @@ export default function BuildList() {
                           {b.status === 'RUNNING' ? '📡 实时' : '📄 日志'}
                         </button>
                         {b.status === 'RUNNING' && canManage && (
-                          <button className="btn btn-danger btn-sm" onClick={async () => { await cancelBuild(b.id); load() }}>⏹ 取消</button>
+                          <button className="btn btn-danger btn-sm" onClick={async () => { await cancelBuild(b.id); load(false) }}>⏹ 取消</button>
+                        )}
+                        {b.status !== 'RUNNING' && canManage && (
+                          <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(b)}>🗑 删除</button>
                         )}
                       </div>
                     </td>
@@ -269,10 +356,52 @@ export default function BuildList() {
                 </select>
               </label>
               <label>流水线:
-                <select value={triggerPipeline} onChange={e => setTriggerPipeline(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
-                  <option value="">-- 选择流水线 --</option>
-                  {triggerPipeList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                {pipesLoading ? (
+                  <div style={{ marginTop: 6, fontSize: 13, color: '#9ca3af' }}>加载中...</div>
+                ) : allPipeList.length === 0 ? (
+                  <div style={{
+                    marginTop: 8,
+                    padding: '14px 16px',
+                    background: '#fffbeb',
+                    border: '1px solid #fcd34d',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    lineHeight: 1.7,
+                  }}>
+                    <div style={{ color: '#92400e', fontWeight: 600, marginBottom: 6 }}>
+                      ⚠️ 该项目暂无可用流水线
+                    </div>
+                    <div style={{ color: '#a16207', marginBottom: 10 }}>
+                      构建必须通过流水线触发，请先为此项目创建一条流水线。
+                    </div>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => { setShowTrigger(false); navigate('/pipelines') }}
+                      style={{ fontSize: 12 }}
+                    >
+                      🔧 前往流水线管理
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <select value={triggerPipeline} onChange={e => setTriggerPipeline(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+                      <option value="">-- 选择流水线（{triggerPipeList.length} 条可用）--</option>
+                      {allPipeList.map(p => {
+                        const isActive = p.status === 'ACTIVE'
+                        return (
+                          <option key={p.id} value={p.id} disabled={!isActive}>
+                            {p.name}{!isActive ? ' [已停用]' : ''}
+                          </option>
+                        )
+                      })}
+                    </select>
+                    {triggerPipeList.length === 0 && (
+                      <div style={{ marginTop: 6, fontSize: 12, color: '#f59e0b' }}>
+                        ⚠️ 所有流水线均处于停用状态，请在流水线管理中启用。
+                      </div>
+                    )}
+                  </>
+                )}
               </label>
               <details>
                 <summary style={{ fontSize: 13, color: '#6b7280', cursor: 'pointer' }}>构建参数（可选）</summary>
@@ -320,6 +449,36 @@ export default function BuildList() {
         </div>
       )}
 
+      {/* Delete Confirm Modal */}
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
+          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <h3>🗑 确认删除构建记录</h3>
+            <div style={{ marginTop: 16, fontSize: 14, color: '#374151', lineHeight: 1.8 }}>
+              <p>即将删除：</p>
+              <div style={{ background: '#f3f4f6', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+                <div><strong>构建编号：</strong>#{deleteTarget.buildNumber}</div>
+                <div><strong>状态：</strong>{STATUS_MAP[deleteTarget.status] || deleteTarget.status}</div>
+                <div><strong>触发者：</strong>{deleteTarget.triggeredBy || '-'}</div>
+              </div>
+              <p style={{ color: '#ef4444', fontSize: 12 }}>⚠️ 此操作不可撤销，构建日志也将一并删除。</p>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn btn-outline" onClick={() => setDeleteTarget(null)}>取消</button>
+              <button className="btn btn-danger" onClick={async () => {
+                try {
+                  await deleteBuild(deleteTarget.id)
+                  setDeleteTarget(null)
+                  load(false)
+                } catch (e) {
+                  alert('删除失败：' + e.message)
+                }
+              }}>确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Log Modal */}
       {logModal && (
         <div className="modal-overlay" onClick={closeLog}>
@@ -329,9 +488,20 @@ export default function BuildList() {
                 📄 构建日志 #{logModal.buildNumber}
                 {logConnected && <span style={{ color: '#22c55e', fontSize: 12, marginLeft: 8 }}>● 实时</span>}
               </h3>
-              <button className="btn btn-outline btn-sm" onClick={closeLog}>关闭</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-outline btn-sm" onClick={jumpToLatest} title="滚动到最新日志">⬇ 最新</button>
+                <button className="btn btn-outline btn-sm" onClick={closeLog}>关闭</button>
+              </div>
             </div>
-            <div className="log-container">{formatLog(logText)}</div>
+            <div
+              className="log-container"
+              ref={logContainerRef}
+              onScroll={handleLogScroll}
+            >{formatLog(logText)}</div>
+            <div style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', display: 'flex', justifyContent: 'space-between' }}>
+              <span>新日志到达时自动滚动到底部；向上滚动可查看历史，此时暂停跟随。</span>
+              <span>每 2 秒刷新一次</span>
+            </div>
           </div>
         </div>
       )}

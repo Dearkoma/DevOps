@@ -49,6 +49,9 @@ public class ServiceInstance {
     @Column(length = 100)
     private String k8sPodName;
 
+    @Column(length = 20)
+    private String deployType = "K8S";  // 部署类型: DOCKER / K8S
+
     @Column
     private Double cpuUsage;  // 百分比
 

@@ -1,0 +1,42 @@
+# DevOps Platform .dockerignore
+# Reduce Docker build context size
+
+# Build artifacts
+**/target/
+**/node_modules/
+**/*.class
+**/*.jar
+
+# IDE files
+**/.idea/
+**/.vscode/
+**/*.iml
+
+# WorkBuddy
+**/.workbuddy/
+
+# Logs
+**/*.log
+**/logs/
+
+# Database files
+**/*.mv.db
+**/*.trace.db
+
+# Documentation / outputs (not needed in Docker)
+**/outputs/
+**/*.docx
+**/*.png
+**/*.py
+**/__pycache__/
+
+# Git
+**/.git/
+
+# OS files
+**/.DS_Store
+**/Thumbs.db
+
+# Temp data / workspace data (not needed in Docker image)
+**/cddata/
+devops-platform/data/

@@ -12,6 +12,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
+
 import java.io.*;
 import java.nio.file.*;
 import java.time.LocalDateTime;
@@ -32,6 +34,7 @@ public class BuildService {
     private final PipelineRepository pipelineRepository;
     private final ArtifactRepository artifactRepository;
     private final NotificationService notificationService;
+    private final ServiceInstanceRepository instanceRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -40,6 +43,20 @@ public class BuildService {
 
     @Value("${devops.pipeline.workspace-dir:./data/workspace}")
     private String workspaceDir;
+
+    /* ---------- lazy-resolved absolute workspace root ---------- */
+    private volatile Path workspaceRoot;
+
+    /** 绝对路径的日志目录（避免 @Async 线程工作目录不一致导致的文件找不到） */
+    private Path absoluteLogDir;
+
+    @PostConstruct
+    void initPaths() throws IOException {
+        Path p = Paths.get(logDir).toAbsolutePath().normalize();
+        Files.createDirectories(p);
+        this.absoluteLogDir = p;
+        log.info("日志目录: absoluteLogDir={}", absoluteLogDir);
+    }
 
     @Value("${devops.pipeline.log-dir:./data/logs}")
     private String logDir;
@@ -59,6 +76,19 @@ public class BuildService {
     @Value("${devops.pipeline.timeout-ms:600000}")
     private long timeoutMs;
 
+    @Value("${devops.pipeline.docker.skip-if-unavailable:true}")
+    private boolean dockerSkipIfUnavailable;
+
+    @Value("${devops.pipeline.docker.command:docker}")
+    private String dockerCommand;
+
+    @Value("${devops.pipeline.k8s.skip-if-unavailable:true}")
+    private boolean k8sSkipIfUnavailable;
+
+    /** 缓存 Docker/K8s 可用性检测结果，避免重复检测 */
+    private Boolean dockerAvailable = null;
+    private Boolean kubectlAvailable = null;
+
     /** WebSocket 日志推送 */
     private void appendLog(Long buildId, String logText) {
         if (buildId != null) {
@@ -76,12 +106,12 @@ public class BuildService {
 
     /** 触发构建 */
     public Build triggerBuild(Long projectId, Long pipelineId, String triggeredBy) {
-        return triggerBuild(projectId, pipelineId, triggeredBy, null, null);
+        return triggerBuild(projectId, pipelineId, triggeredBy, null, null, false, false);
     }
 
-    /** 参数化触发构建 */
+    /** 参数化触发构建（含独立跳过标志） */
     public Build triggerBuild(Long projectId, Long pipelineId, String triggeredBy,
-                              String buildParams, String branch) {
+                              String buildParams, String branch, boolean skipDocker, boolean skipK8s) {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new RuntimeException("项目不存在: " + projectId));
         Pipeline pipeline = pipelineRepository.findById(pipelineId)
@@ -99,6 +129,8 @@ public class BuildService {
         build.setStartTime(LocalDateTime.now());
         build.setBuildParams(buildParams);
         build.setBranch(branch != null ? branch : project.getGitBranch());
+        build.setSkipDocker(skipDocker);
+        build.setSkipK8s(skipK8s);
         buildRepository.save(build);
 
         executeBuildAsync(build.getId(), project, pipeline);
@@ -135,7 +167,7 @@ public class BuildService {
         }
 
         String triggerType = "PUSH";
-        Build build = triggerBuild(projectId, matched.getId(), committer, null, branch);
+        Build build = triggerBuild(projectId, matched.getId(), committer, null, branch, false, false);
         build.setTriggerType(triggerType);
         build.setGitCommit(commit);
         buildRepository.save(build);
@@ -179,6 +211,12 @@ public class BuildService {
             if (build.getBuildParams() != null) {
                 logBuf.append("[INFO] 构建参数: ").append(build.getBuildParams()).append("\n");
             }
+            boolean skipDocker = build.getSkipDocker() != null && build.getSkipDocker();
+            boolean skipK8s = build.getSkipK8s() != null && build.getSkipK8s();
+            String deployDesc = "编译+测试";
+            if (!skipDocker) deployDesc += " + Docker";
+            if (!skipK8s) deployDesc += " + K8s";
+            logBuf.append("[INFO] 部署选项: ").append(deployDesc).append("\n");
             logBuf.append("[INFO] 工作目录: ").append(getProjectWorkspace(project)).append("\n\n");
             appendLog(buildId, logBuf.toString());
 
@@ -197,6 +235,14 @@ public class BuildService {
             int completedSteps = 0;
 
             for (StageDef stage : stages) {
+                // 根据部署目标跳过不相关的阶段
+                if (shouldSkipStage(stage, build)) {
+                    logBuf.append("========== 阶段: ").append(stage.name)
+                          .append(" 【已跳过】 ==========\n");
+                    appendLog(buildId, logBuf.toString());
+                    continue;
+                }
+
                 logBuf.append("========== 阶段: ").append(stage.name).append(" ==========\n");
                 appendLog(buildId, logBuf.toString());
 
@@ -231,6 +277,9 @@ public class BuildService {
 
             // 收集制品
             collectArtifacts(build, project, logBuf);
+
+            // 记录服务实例（如果部署了）
+            recordServiceInstance(build, project, logBuf);
 
             // 发送成功通知
             notificationService.buildSuccess(build.getBuildNumber(), build.getId(), project.getName());
@@ -311,6 +360,117 @@ public class BuildService {
         }
     }
 
+    /** 根据跳过标志记录服务实例 */
+    private void recordServiceInstance(Build build, Project project, StringBuilder logBuf) {
+        boolean skipDocker = build.getSkipDocker() != null && build.getSkipDocker();
+        boolean skipK8s = build.getSkipK8s() != null && build.getSkipK8s();
+        if (skipDocker && skipK8s) return; // 全部跳过，不记录实例
+
+        logBuf.append("\n========== 记录服务实例 ==========\n");
+
+        try {
+            ServiceInstance instance = new ServiceInstance();
+            instance.setProjectId(project.getId());
+            instance.setProjectName(project.getName());
+            instance.setStatus("RUNNING");
+            instance.setHealthStatus("HEALTHY");
+            instance.setLastHeartbeat(LocalDateTime.now());
+            String imageNameStr = dockerRegistry.isBlank() ? project.getCode() : dockerRegistry + "/" + project.getCode();
+
+            if (!skipK8s) {
+                // K8s 部署（包含 Docker 镜像）
+                instance.setDeployType("K8S");
+                instance.setInstanceName(project.getCode() + "-k8s");
+                instance.setK8sNamespace(k8sNamespace);
+                instance.setK8sPodName(project.getCode());
+                instance.setImageName(imageNameStr);
+                instance.setImageTag("latest");
+                logBuf.append("[INSTANCE] K8s 实例: ").append(instance.getInstanceName()).append("\n");
+                logBuf.append("[INSTANCE] 命名空间: ").append(k8sNamespace).append("\n");
+                logBuf.append("[INSTANCE] Pod: ").append(instance.getK8sPodName()).append("\n");
+            } else {
+                // 仅 Docker（跳过 K8s）
+                instance.setDeployType("DOCKER");
+                instance.setInstanceName(project.getCode() + "-docker");
+                instance.setImageName(imageNameStr);
+                instance.setImageTag("latest");
+                instance.setHost("localhost");
+                instance.setPort(8080);
+                instance.setContainerId("");
+                logBuf.append("[INSTANCE] Docker 实例: ").append(instance.getInstanceName()).append("\n");
+                logBuf.append("[INSTANCE] 镜像: ").append(instance.getImageName()).append(":").append(instance.getImageTag()).append("\n");
+            }
+
+            // 更新已有实例或新建
+            List<ServiceInstance> existing = instanceRepository.findByProjectId(project.getId());
+            if (!existing.isEmpty()) {
+                ServiceInstance old = existing.get(0);
+                instance.setId(old.getId());
+                instance.setCreatedAt(old.getCreatedAt());
+            }
+            instanceRepository.save(instance);
+            logBuf.append("[INSTANCE] 服务实例已记录\n");
+        } catch (Exception e) {
+            logBuf.append("[WARN] 记录实例失败: ").append(e.getMessage()).append("\n");
+        }
+    }
+
+    /** 检测 Docker 是否可用（结果缓存） */
+    private boolean isDockerAvailable() {
+        if (dockerAvailable != null) return dockerAvailable;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(dockerCommand, "info");
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            boolean finished = proc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+            if (finished) {
+                dockerAvailable = proc.exitValue() == 0;
+            } else {
+                proc.destroyForcibly();
+                dockerAvailable = false;
+            }
+        } catch (Exception e) {
+            dockerAvailable = false;
+        }
+        return dockerAvailable;
+    }
+
+    /** 检测 kubectl 是否可用（结果缓存） */
+    private boolean isKubectlAvailable() {
+        if (kubectlAvailable != null) return kubectlAvailable;
+        try {
+            ProcessBuilder pb = new ProcessBuilder("kubectl", "version", "--client");
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            boolean finished = proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            kubectlAvailable = finished && proc.exitValue() == 0;
+        } catch (Exception e) {
+            kubectlAvailable = false;
+        }
+        return kubectlAvailable;
+    }
+
+    /** 重置工具可用性缓存（重新连接后调用） */
+    public void resetToolAvailability() {
+        dockerAvailable = null;
+        kubectlAvailable = null;
+    }
+
+    /** 根据跳过标志判断是否跳过某个阶段 */
+    private boolean shouldSkipStage(StageDef stage, Build build) {
+        boolean skipDocker = build.getSkipDocker() != null && build.getSkipDocker();
+        boolean skipK8s = build.getSkipK8s() != null && build.getSkipK8s();
+
+        boolean hasDockerStep = stage.steps.stream().anyMatch(s ->
+                "DOCKER_BUILD".equalsIgnoreCase(s.type) || "DOCKER_PUSH".equalsIgnoreCase(s.type));
+        boolean hasK8sStep = stage.steps.stream().anyMatch(s ->
+                "K8S_DEPLOY".equalsIgnoreCase(s.type));
+
+        if (skipDocker && hasDockerStep) return true;
+        if (skipK8s && hasK8sStep) return true;
+        return false;
+    }
+
     private boolean executeStep(StepDef step, Project project, StringBuilder logBuf, Long buildId) {
         try {
             if (simulationMode) return executeStepSimulated(step, project, logBuf);
@@ -373,9 +533,11 @@ public class BuildService {
     private boolean executeShellReal(StepDef step, Project project, StringBuilder logBuf, Long buildId) throws Exception {
         String command = step.command;
         if (command == null || command.isBlank()) return true;
+        String workDir = findProjectRoot(project).toString();
+        logBuf.append("[INFO] 工作目录: ").append(workDir).append("\n");
         logBuf.append("$ ").append(command).append("\n");
         appendLog(buildId, logBuf.toString());
-        int exitCode = runCommand(getProjectWorkspace(project), command, logBuf, buildId);
+        int exitCode = runCommand(workDir, command, logBuf, buildId);
         if (exitCode != 0) {
             logBuf.append("[ERROR] 退出码: ").append(exitCode).append("\n");
             return false;
@@ -384,131 +546,433 @@ public class BuildService {
     }
 
     private boolean executeDockerBuildReal(StepDef step, Project project, StringBuilder logBuf, Long buildId) throws Exception {
-        String imageName = dockerRegistry.isBlank() ? project.getCode() + ":latest"
-                : dockerRegistry + "/" + project.getCode() + ":latest";
-        String dockerfile = step.command.isBlank() ? "Dockerfile" : step.command;
-        String command = "docker build -t " + imageName + " -f " + dockerfile + " .";
-        logBuf.append("[DOCKER] 构建镜像: ").append(imageName).append("\n");
-        appendLog(buildId, logBuf.toString());
-        int exitCode = runCommand(getProjectWorkspace(project), command, logBuf, buildId);
-        if (exitCode != 0) {
-            logBuf.append("[ERROR] Docker 构建失败\n");
+        if (!isDockerAvailable()) {
+            if (dockerSkipIfUnavailable) {
+                logBuf.append("[DOCKER] Docker 不可用，跳过镜像构建\n");
+                logBuf.append("[HINT] 启动 Docker Desktop 或 Rancher Desktop 后重试\n");
+                return true;
+            }
+            logBuf.append("[ERROR] Docker 不可用，无法构建镜像\n");
             return false;
         }
+
+        // Docker build context 应使用 workspace 根目录，以包含前端等子项目
+        Path projectRoot = findProjectRoot(project);
+        Path workspacePath = resolveWorkspaceRoot().resolve(project.getCode());
+        Path buildContext = workspacePath;
+
+        // 确定 Dockerfile 路径：优先使用项目根目录下的 Dockerfile，其次使用 workspace 根目录的
+        String dockerfile = step.command.isBlank() ? "Dockerfile" : step.command;
+        Path dockerfilePath = projectRoot.resolve(dockerfile);
+        if (!Files.exists(dockerfilePath)) {
+            // 检查 workspace 根目录是否有 Dockerfile
+            Path workspaceDockerfile = workspacePath.resolve(dockerfile);
+            if (Files.exists(workspaceDockerfile)) {
+                dockerfilePath = workspaceDockerfile;
+            }
+        }
+
+        // 计算 Dockerfile 相对于 build context 的路径
+        String dockerfileRelPath = buildContext.relativize(dockerfilePath).toString();
+
+        String imageName = dockerRegistry.isBlank() ? project.getCode() + ":latest"
+                : dockerRegistry + "/" + project.getCode() + ":latest";
+        String command = dockerCommand + " build -t " + imageName + " -f " + dockerfileRelPath + " .";
+        logBuf.append("[DOCKER] 构建镜像: ").append(imageName).append("\n");
+        logBuf.append("[INFO] 工作目录: ").append(buildContext).append("\n");
+        logBuf.append("[INFO] Dockerfile: ").append(dockerfilePath).append("\n");
+        appendLog(buildId, logBuf.toString());
+        int exitCode = runCommand(buildContext.toString(), command, logBuf, buildId);
+        if (exitCode != 0) { logBuf.append("[ERROR] Docker 构建失败\n"); return false; }
         logBuf.append("[DOCKER] 镜像构建完成\n");
         return true;
     }
 
     private boolean executeDockerPushReal(StepDef step, Project project, StringBuilder logBuf, Long buildId) throws Exception {
-        String imageName = dockerRegistry.isBlank() ? project.getCode() + ":latest"
-                : dockerRegistry + "/" + project.getCode() + ":latest";
-        if (!dockerRegistry.isBlank()) {
-            String tagCmd = "docker tag " + project.getCode() + ":latest " + imageName;
-            logBuf.append("$ ").append(tagCmd).append("\n");
-            if (runCommand(getProjectWorkspace(project), tagCmd, logBuf, buildId) != 0) {
-                logBuf.append("[ERROR] Docker tag 失败\n");
-                return false;
-            }
+        if (!isDockerAvailable()) {
+            logBuf.append("[DOCKER] Docker 不可用，跳过镜像推送\n");
+            return true;
         }
-        String command = "docker push " + imageName;
+        // No registry configured → skip push (image is available locally, no remote registry to push to)
+        if (dockerRegistry.isBlank()) {
+            logBuf.append("[DOCKER] 未配置镜像仓库地址，跳过推送（本地镜像可直接使用）\n");
+            logBuf.append("[HINT] 如需推送远程仓库，请在 application.yml 配置 devops.pipeline.docker.registry\n");
+            return true;
+        }
+        Path workDir = findProjectRoot(project);
+        String imageName = dockerRegistry + "/" + project.getCode() + ":latest";
+        String tagCmd = dockerCommand + " tag " + project.getCode() + ":latest " + imageName;
+        logBuf.append("$ ").append(tagCmd).append("\n");
+        if (runCommand(workDir.toString(), tagCmd, logBuf, buildId) != 0) {
+            logBuf.append("[ERROR] Docker tag 失败\n"); return false;
+        }
+        String command = dockerCommand + " push " + imageName;
         logBuf.append("[DOCKER] 推送: ").append(imageName).append("\n");
         appendLog(buildId, logBuf.toString());
-        int exitCode = runCommand(getProjectWorkspace(project), command, logBuf, buildId);
+        int exitCode = runCommand(workDir.toString(), command, logBuf, buildId);
         if (exitCode != 0) { logBuf.append("[ERROR] 推送失败\n"); return false; }
         logBuf.append("[DOCKER] 推送完成\n");
         return true;
     }
 
     private boolean executeK8sDeployReal(StepDef step, Project project, StringBuilder logBuf, Long buildId) throws Exception {
+        if (!isKubectlAvailable()) {
+            if (k8sSkipIfUnavailable) {
+                logBuf.append("[K8S] kubectl 不可用，跳过部署\n");
+                logBuf.append("[HINT] 确保 kubectl 已安装且集群可访问\n");
+                return true;
+            }
+            logBuf.append("[ERROR] kubectl 不可用，无法部署\n");
+            return false;
+        }
+        Path workDir = findProjectRoot(project);
         String deployFile = step.command.isBlank() ? "deployment.yaml" : step.command;
+        Path deployPath = workDir.resolve(deployFile);
+
+        // 如果 deployment.yaml 不存在，自动生成默认模板
+        if (!Files.exists(deployPath)) {
+            logBuf.append("[K8S] deployment.yaml 不存在，自动生成默认模板\n");
+            String generated = generateDefaultK8sDeployment(project);
+            try {
+                Files.writeString(deployPath, generated);
+                logBuf.append("[K8S] 已生成: ").append(deployPath.toString()).append("\n");
+            } catch (IOException e) {
+                logBuf.append("[ERROR] 无法写入 deployment.yaml: ").append(e.getMessage()).append("\n");
+                return false;
+            }
+        } else {
+            logBuf.append("[K8S] 使用已有: ").append(deployPath.toString()).append("\n");
+        }
+
         String command = "kubectl apply -f " + deployFile + " -n " + k8sNamespace;
         logBuf.append("[K8S] 部署 namespace=").append(k8sNamespace).append("\n");
+        logBuf.append("[INFO] 工作目录: ").append(workDir).append("\n");
         appendLog(buildId, logBuf.toString());
-        if (runCommand(getProjectWorkspace(project), command, logBuf, buildId) != 0) {
+        if (runCommand(workDir.toString(), command, logBuf, buildId) != 0) {
             logBuf.append("[ERROR] 部署失败\n"); return false;
         }
-        String rolloutCmd = "kubectl rollout status deployment/" + project.getCode() + " -n " + k8sNamespace;
+        String rolloutCmd = "kubectl rollout status deployment/" + project.getCode()
+                + " -n " + k8sNamespace + " --timeout=60s";
         logBuf.append("[K8S] $ ").append(rolloutCmd).append("\n");
-        int rc = runCommand(getProjectWorkspace(project), rolloutCmd, logBuf, buildId);
-        if (rc != 0) logBuf.append("[WARN] rollout 检查失败\n");
+        int rc = runCommand(workDir.toString(), rolloutCmd, logBuf, buildId);
+        if (rc != 0) {
+            logBuf.append("[WARN] rollout 在 60 秒内未完成，Pod 可能仍在拉取镜像或启动中\n");
+        }
         logBuf.append("[K8S] 部署完成\n");
         return true;
     }
 
+    /**
+     * 自动生成默认的 K8s Deployment YAML
+     */
+    private String generateDefaultK8sDeployment(Project project) {
+        String appName = project.getCode() != null ? project.getCode() : "devops-app";
+        String image = appName + ":latest";
+        int containerPort = 8080;
+        if ("Node.js".equalsIgnoreCase(project.getLanguage())) containerPort = 3000;
+        return "apiVersion: apps/v1\n" +
+                "kind: Deployment\n" +
+                "metadata:\n" +
+                "  name: " + appName + "\n" +
+                "  namespace: " + k8sNamespace + "\n" +
+                "spec:\n" +
+                "  replicas: 1\n" +
+                "  selector:\n" +
+                "    matchLabels:\n" +
+                "      app: " + appName + "\n" +
+                "  template:\n" +
+                "    metadata:\n" +
+                "      labels:\n" +
+                "        app: " + appName + "\n" +
+                "    spec:\n" +
+                "      containers:\n" +
+                "        - name: " + appName + "\n" +
+                "          image: " + image + "\n" +
+                "          imagePullPolicy: IfNotPresent\n" +
+                "          ports:\n" +
+                "            - containerPort: " + containerPort + "\n" +
+                "          resources:\n" +
+                "            requests:\n" +
+                "              memory: \"256Mi\"\n" +
+                "              cpu: \"250m\"\n" +
+                "            limits:\n" +
+                "              memory: \"512Mi\"\n" +
+                "              cpu: \"500m\"\n" +
+                "---\n" +
+                "apiVersion: v1\n" +
+                "kind: Service\n" +
+                "metadata:\n" +
+                "  name: " + appName + "-svc\n" +
+                "  namespace: " + k8sNamespace + "\n" +
+                "spec:\n" +
+                "  selector:\n" +
+                "    app: " + appName + "\n" +
+                "  ports:\n" +
+                "    - port: 8080\n" +
+                "      targetPort: " + containerPort + "\n" +
+                "  type: ClusterIP\n";
+    }
+
     private boolean executeTestReal(StepDef step, Project project, StringBuilder logBuf, Long buildId) throws Exception {
+        Path workDir = findProjectRoot(project);
         String cmd = project.getLanguage() != null && project.getLanguage().equalsIgnoreCase("Node.js")
                 ? "npm test" : "mvn test -B";
         logBuf.append("[TEST] ").append(cmd).append("\n");
+        logBuf.append("[INFO] 工作目录: ").append(workDir).append("\n");
         appendLog(buildId, logBuf.toString());
-        return runCommand(getProjectWorkspace(project), cmd, logBuf, buildId) == 0;
+        return runCommand(workDir.toString(), cmd, logBuf, buildId) == 0;
     }
 
     private boolean executeNpmInstallReal(StepDef step, Project project, StringBuilder logBuf, Long buildId) throws Exception {
-        logBuf.append("$ npm install\n");
+        Path projectRoot = findProjectRoot(project);
+        Path packageJson = projectRoot.resolve("package.json");
+        if (!Files.exists(packageJson)) {
+            logBuf.append("[ERROR] 找不到 package.json: ").append(projectRoot.toAbsolutePath()).append("\n");
+            return false;
+        }
+        String cmd = "npm install";
+        logBuf.append("$ ").append(cmd).append("\n");
+        logBuf.append("[INFO] 工作目录: ").append(projectRoot).append("\n");
         appendLog(buildId, logBuf.toString());
-        return runCommand(getProjectWorkspace(project), "npm install", logBuf, buildId) == 0;
+        return runCommand(projectRoot.toString(), cmd, logBuf, buildId) == 0;
     }
 
     private boolean executeNpmBuildReal(StepDef step, Project project, StringBuilder logBuf, Long buildId) throws Exception {
-        logBuf.append("$ npm run build\n");
+        Path projectRoot = findProjectRoot(project);
+        Path packageJson = projectRoot.resolve("package.json");
+        if (!Files.exists(packageJson)) {
+            logBuf.append("[ERROR] 找不到 package.json: ").append(projectRoot.toAbsolutePath()).append("\n");
+            return false;
+        }
+        String cmd = "npm run build";
+        logBuf.append("$ ").append(cmd).append("\n");
+        logBuf.append("[INFO] 工作目录: ").append(projectRoot).append("\n");
         appendLog(buildId, logBuf.toString());
-        return runCommand(getProjectWorkspace(project), "npm run build", logBuf, buildId) == 0;
+        return runCommand(projectRoot.toString(), cmd, logBuf, buildId) == 0;
     }
 
     private boolean executeMvnPackageReal(StepDef step, Project project, StringBuilder logBuf, Long buildId) throws Exception {
+        Path projectRoot = findProjectRoot(project);
+        Path pomXml = projectRoot.resolve("pom.xml");
+
+        if (!Files.exists(pomXml)) {
+            logBuf.append("[ERROR] 找不到 pom.xml\n");
+            logBuf.append("[ERROR] 查找路径: ").append(projectRoot.toAbsolutePath()).append("\n");
+            logBuf.append("[HINT] 确认 pom.xml 在仓库中且未被 .gitignore 排除\n");
+            logBuf.append("[HINT] 如果 pom.xml 在子目录中，可以在项目的构建命令里指定路径\n");
+            // 列出目录内容帮助诊断
+            logBuf.append("--- 目录内容 ---\n");
+            listDirectory(projectRoot, logBuf, 0, 2);
+            logBuf.append("----------------\n");
+            return false;
+        }
+
         String cmd = "mvn clean package -DskipTests -B";
+        String workDir = projectRoot.toString();
         logBuf.append("$ ").append(cmd).append("\n");
+        logBuf.append("[INFO] 工作目录: ").append(workDir).append("\n");
         appendLog(buildId, logBuf.toString());
-        return runCommand(getProjectWorkspace(project), cmd, logBuf, buildId) == 0;
+        return runCommand(workDir, cmd, logBuf, buildId) == 0;
     }
 
     // ===================== Git 操作 =====================
+
+    /** 确保工作区根目录已创建并返回绝对路径 */
+    private Path resolveWorkspaceRoot() throws IOException {
+        if (workspaceRoot != null) return workspaceRoot;
+        synchronized (this) {
+            if (workspaceRoot != null) return workspaceRoot;
+            Path p = Paths.get(workspaceDir).toAbsolutePath().normalize();
+            Files.createDirectories(p);
+            workspaceRoot = p;
+            return workspaceRoot;
+        }
+    }
+
     private boolean prepareWorkspace(Project project, StringBuilder logBuf, Long buildId, String branch) throws Exception {
-        String workspace = getProjectWorkspace(project);
-        Path workspacePath = Paths.get(workspace);
+        Path root = resolveWorkspaceRoot();
+        String projectCode = project.getCode();
+        if (projectCode == null || projectCode.isBlank()) {
+            logBuf.append("[ERROR] 项目编码 (code) 为空，无法创建工作目录\n");
+            return false;
+        }
+        Path workspacePath = root.resolve(projectCode);
+        String workspaceAbs = workspacePath.toString();
         String gitUrl = project.getGitUrl();
         String effectiveBranch = (branch != null && !branch.isBlank()) ? branch
                 : (project.getGitBranch() != null && !project.getGitBranch().isBlank())
                 ? project.getGitBranch() : "main";
 
         logBuf.append("========== 代码准备 ==========\n");
+        logBuf.append("[INFO] 工作目录: ").append(workspaceAbs).append("\n");
 
         if (gitUrl == null || gitUrl.isBlank()) {
-            logBuf.append("[WARN] 未配置 Git 地址，跳过\n");
+            logBuf.append("[WARN] 未配置 Git 地址，跳过代码拉取\n");
             if (!Files.exists(workspacePath)) Files.createDirectories(workspacePath);
             return true;
         }
 
+        // --- 已有 Git 仓库 → Pull ---
         if (Files.exists(workspacePath) && Files.exists(workspacePath.resolve(".git"))) {
-            logBuf.append("[GIT] 仓库已存在，拉取最新代码...\n");
+            logBuf.append("[GIT] 仓库已存在，拉取最新代码 (分支: ").append(effectiveBranch).append(")\n");
             String pullCmd = "git fetch origin && git checkout " + effectiveBranch
                     + " && git pull origin " + effectiveBranch;
             logBuf.append("$ ").append(pullCmd).append("\n");
             appendLog(buildId, logBuf.toString());
-            int exitCode = runCommand(workspace, pullCmd, logBuf, buildId);
-            if (exitCode != 0) { logBuf.append("[ERROR] Git pull 失败\n"); return false; }
+            int exitCode = runGitCommandWithRetry(workspaceAbs, pullCmd, logBuf, buildId, 3);
+            if (exitCode != 0) {
+                logBuf.append("[ERROR] Git pull 失败 (退出码: ").append(String.valueOf(exitCode)).append(")\n");
+                logBuf.append("[HINT] 如果是认证失败，请检查 Git 地址是否包含 Token 或密钥\n");
+                return false;
+            }
             logBuf.append("[GIT] 代码更新完成\n\n");
-            return true;
+            return verifyWorkspaceContents(project, workspacePath, logBuf);
         }
 
+        // --- 目录存在但非 Git 仓库 → 清理后重新克隆 ---
         if (Files.exists(workspacePath)) {
-            logBuf.append("[WARN] 工作目录存在但非 Git 仓库，清理后重新克隆\n");
+            logBuf.append("[WARN] 目录已存在但不是 Git 仓库，清理后重新克隆\n");
             deleteRecursively(workspacePath);
         }
 
+        // --- 全新克隆 ---
         logBuf.append("[GIT] 克隆: ").append(gitUrl).append(" (分支: ").append(effectiveBranch).append(")\n");
-        Files.createDirectories(workspacePath.getParent());
-        String cloneCmd = "git clone -b " + effectiveBranch + " " + gitUrl + " " + project.getCode();
+        Files.createDirectories(root);
+        String cloneCmd = "git clone -b " + effectiveBranch + " " + gitUrl + " " + projectCode;
         logBuf.append("$ ").append(cloneCmd).append("\n");
         appendLog(buildId, logBuf.toString());
-        int exitCode = runCommand(workspacePath.getParent().toString(), cloneCmd, logBuf, buildId);
+        int exitCode = runGitCommandWithRetry(root.toString(), cloneCmd, logBuf, buildId, 3);
         if (exitCode != 0) {
-            logBuf.append("[ERROR] Git clone 失败\n");
-            logBuf.append("[HINT] 检查 Git 地址、分支、访问权限\n");
+            logBuf.append("[ERROR] Git clone 失败 (退出码: ").append(String.valueOf(exitCode)).append(")\n");
+            logBuf.append("[HINT] 请确认:\n");
+            logBuf.append("  1. Git 地址正确: ").append(gitUrl).append("\n");
+            logBuf.append("  2. 分支存在: ").append(effectiveBranch).append("\n");
+            logBuf.append("  3. 有访问权限 (公开仓库 或 个人 Token)\n");
+            return false;
+        }
+
+        // 验证克隆结果
+        if (!Files.exists(workspacePath)) {
+            logBuf.append("[ERROR] Git clone 未报错但目标目录不存在: ").append(workspaceAbs).append("\n");
             return false;
         }
         logBuf.append("[GIT] 克隆完成\n\n");
-        return true;
+        return verifyWorkspaceContents(project, workspacePath, logBuf);
+    }
+
+    /**
+     * 验证工作目录内容 —— 列出文件结构，确认构建文件存在
+     */
+    private boolean verifyWorkspaceContents(Project project, Path workspacePath, StringBuilder logBuf) {
+        try {
+            logBuf.append("--- 工作目录内容 ---\n");
+            listDirectory(workspacePath, logBuf, 0, 3);
+
+            // 检测项目类型，验证关键构建文件
+            Path pomXml = findFile(workspacePath, "pom.xml");
+            Path packageJson = findFile(workspacePath, "package.json");
+            Path buildGradle = findFile(workspacePath, "build.gradle");
+
+            String language = project.getLanguage() != null ? project.getLanguage() : "Java";
+            boolean hasBuildFile = false;
+
+            if ("Java".equalsIgnoreCase(language)) {
+                if (pomXml != null) {
+                    logBuf.append("[OK] 找到 pom.xml: ").append(workspacePath.relativize(pomXml)).append("\n");
+                    hasBuildFile = true;
+                }
+                if (buildGradle != null) {
+                    logBuf.append("[OK] 找到 build.gradle: ").append(workspacePath.relativize(buildGradle)).append("\n");
+                    hasBuildFile = true;
+                }
+                if (!hasBuildFile) {
+                    logBuf.append("[WARN] 未找到 Maven pom.xml 或 Gradle build.gradle\n");
+                    logBuf.append("[HINT] 请确认项目中有 pom.xml 文件，且已上传到 Git 仓库\n");
+                }
+            } else if ("Node.js".equalsIgnoreCase(language)) {
+                if (packageJson != null) {
+                    logBuf.append("[OK] 找到 package.json: ").append(workspacePath.relativize(packageJson)).append("\n");
+                    hasBuildFile = true;
+                } else {
+                    logBuf.append("[WARN] 未找到 package.json\n");
+                }
+            }
+
+            if (!hasBuildFile) {
+                logBuf.append("[HINT] 构建文件不在根目录？可以在流水线定义中指定工作子目录\n");
+            }
+
+            logBuf.append("--------------------\n\n");
+            return true;  // 目录已就绪，构建文件缺失由具体步骤报错
+        } catch (Exception e) {
+            logBuf.append("[WARN] 验证工作目录内容失败: ").append(e.getMessage()).append("\n");
+            return true;  // 不影响构建继续
+        }
+    }
+
+    /** 递归列出目录（限制深度和条目数） */
+    private void listDirectory(Path dir, StringBuilder buf, int depth, int maxDepth) {
+        if (depth > maxDepth) return;
+        try {
+            java.util.List<Path> entries = new java.util.ArrayList<>();
+            try (var stream = Files.list(dir)) { entries = stream.sorted().toList(); } catch (IOException ignored) {}
+            int shown = 0;
+            for (Path entry : entries) {
+                if (shown >= 30) { buf.append("  ... 还有 ").append(entries.size() - 30).append(" 项\n"); break; }
+                String indent = "  ".repeat(depth + 1);
+                if (Files.isDirectory(entry)) {
+                    buf.append(indent).append(entry.getFileName()).append("/\n");
+                    if (depth < maxDepth - 1) listDirectory(entry, buf, depth + 1, maxDepth);
+                } else {
+                    long size = 0;
+                    try { size = Files.size(entry); } catch (IOException ignored) {}
+                    buf.append(indent).append(entry.getFileName());
+                    buf.append(" (").append(size / 1024).append(" KB)\n");
+                }
+                shown++;
+            }
+        } catch (Exception ignored) {}
+    }
+
+    /** 在目录及一级子目录中查找文件 */
+    private Path findFile(Path dir, String fileName) {
+        Path direct = dir.resolve(fileName);
+        if (Files.exists(direct)) return direct;
+        // 搜索一级子目录
+        try (var stream = Files.list(dir)) {
+            for (Path child : stream.toList()) {
+                if (Files.isDirectory(child)) {
+                    Path nested = child.resolve(fileName);
+                    if (Files.exists(nested)) return nested;
+                }
+            }
+        } catch (IOException ignored) {}
+        return null;
+    }
+
+    /** 在 workspace 中定位项目根目录（包含 pom.xml/package.json 等构建文件） */
+    private Path findProjectRoot(Project project) throws IOException {
+        Path workspacePath = resolveWorkspaceRoot().resolve(project.getCode());
+        if (!Files.exists(workspacePath)) return workspacePath;
+
+        // 先检查 workspace 本身
+        if (Files.exists(workspacePath.resolve("pom.xml"))
+                || Files.exists(workspacePath.resolve("package.json"))
+                || Files.exists(workspacePath.resolve("build.gradle"))
+                || Files.exists(workspacePath.resolve("build.gradle.kts"))) {
+            return workspacePath;
+        }
+
+        // 找一级子目录中带 pom.xml 的
+        try (var stream = Files.list(workspacePath)) {
+            for (Path child : stream.toList()) {
+                if (Files.isDirectory(child) && Files.exists(child.resolve("pom.xml"))) {
+                    return child;
+                }
+            }
+        }
+
+        return workspacePath;
     }
 
     private void deleteRecursively(Path path) throws IOException {
@@ -521,6 +985,60 @@ public class BuildService {
     }
 
     // ===================== 命令执行 =====================
+    /**
+     * 带重试的 Git 命令执行 —— 网络错误自动重试，认证/分支错误不重试
+     */
+    private int runGitCommandWithRetry(String workDir, String command, StringBuilder logBuf,
+                                        Long buildId, int maxRetries) throws Exception {
+        int lastExitCode = -1;
+        StringBuilder retryLog = new StringBuilder();
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            StringBuilder attemptBuf = new StringBuilder();
+            int exitCode = runCommand(workDir, command, attemptBuf, buildId);
+            String output = attemptBuf.toString();
+            logBuf.append(output);
+            lastExitCode = exitCode;
+
+            if (exitCode == 0) {
+                return 0;
+            }
+
+            // 判断是否为网络类错误（可重试）
+            boolean isNetworkError = output.contains("Connection was reset")
+                    || output.contains("Could not connect to server")
+                    || output.contains("RPC failed")
+                    || output.contains("Failed to connect")
+                    || output.contains("Connection timed out")
+                    || output.contains("Could not resolve host")
+                    || output.contains("Recv failure");
+
+            // 判断是否为不可重试的错误（认证、分支不存在等）
+            boolean isFatalError = output.contains("Authentication failed")
+                    || output.contains("could not read Username")
+                    || output.contains("could not read Password")
+                    || output.contains("Repository not found")
+                    || output.contains("couldn't find remote ref")
+                    || output.contains("fatal: ambiguous argument");
+
+            if (isFatalError || !isNetworkError) {
+                // 不可重试的错误，直接返回
+                return exitCode;
+            }
+
+            if (attempt < maxRetries) {
+                long waitSeconds = (long) Math.pow(2, attempt + 1); // 4s, 8s, 16s
+                retryLog.append("[RETRY] Git 网络错误，").append(waitSeconds)
+                        .append("s 后重试 (第 ").append(attempt).append("/").append(maxRetries).append(" 次)\n");
+                logBuf.append(retryLog.toString());
+                appendLog(buildId, retryLog.toString());
+                retryLog.setLength(0);
+                Thread.sleep(waitSeconds * 1000);
+            }
+        }
+        return lastExitCode;
+    }
+
     private int runCommand(String workDir, String command, StringBuilder logBuf, Long buildId) throws Exception {
         Path workPath = Paths.get(workDir);
         if (!Files.exists(workPath)) Files.createDirectories(workPath);
@@ -533,10 +1051,16 @@ public class BuildService {
         pb.directory(new File(workDir));
         pb.redirectErrorStream(true);
 
+        // 强制子进程使用 UTF-8 编码，避免 Windows GBK 与 Maven UTF-8 冲突导致乱码
+        pb.environment().put("JAVA_TOOL_OPTIONS", "-Dfile.encoding=UTF-8");
+        pb.environment().put("PYTHONIOENCODING", "UTF-8");
+
         Process proc = pb.start();
         if (buildId != null) runningProcesses.put(buildId, proc);
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream(), "GBK"))) {
+        // Windows 下 cmd.exe 默认 GBK，但 Maven/javac 输出 UTF-8；设置 JAVA_TOOL_OPTIONS 后统一 UTF-8
+        // docker / kubectl 输出多为 ASCII，UTF-8 读取兼容
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream(), "UTF-8"))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 logBuf.append("  ").append(line).append("\n");
@@ -556,7 +1080,12 @@ public class BuildService {
 
     // ===================== 辅助方法 =====================
     private String getProjectWorkspace(Project project) {
-        return workspaceDir + "/" + project.getCode();
+        try {
+            Path root = resolveWorkspaceRoot();
+            return root.resolve(project.getCode()).toString();
+        } catch (IOException e) {
+            return workspaceDir + "/" + project.getCode();  // fallback
+        }
     }
 
     private void simulateDelay(int minMs, int maxMs) throws InterruptedException {
@@ -606,22 +1135,44 @@ public class BuildService {
     }
 
     private void saveLogFile(Long buildId, String logContent) {
+        // 1) 写入文件系统（使用绝对路径，避免 @Async 线程的工作目录问题）
         try {
-            Path logPath = Paths.get(logDir);
-            if (!Files.exists(logPath)) Files.createDirectories(logPath);
-            Files.writeString(logPath.resolve("build-" + buildId + ".log"), logContent);
+            Path logFile = absoluteLogDir.resolve("build-" + buildId + ".log");
+            Files.writeString(logFile, logContent);
         } catch (IOException e) {
-            log.error("保存日志文件失败", e);
+            log.error("保存日志文件失败 buildId={}", buildId, e);
+        }
+
+        // 2) 同时持久化到数据库，确保日志不会因为文件系统问题而丢失
+        try {
+            buildRepository.findById(buildId).ifPresent(build -> {
+                build.setLogContent(logContent);
+                buildRepository.save(build);
+            });
+        } catch (Exception e) {
+            log.error("持久化日志到数据库失败 buildId={}", buildId, e);
         }
     }
 
     public String getBuildLog(Long buildId) {
+        // 1) 运行中的构建 → 直接从内存缓存取（实时日志）
         StringBuilder cached = logCache.get(buildId);
         if (cached != null) return cached.toString();
+
+        // 2) 已完成的构建 → 先尝试从文件系统读取
         try {
-            Path logFile = Paths.get(logDir, "build-" + buildId + ".log");
-            if (Files.exists(logFile)) return Files.readString(logFile);
-        } catch (IOException e) { log.error("读取日志失败", e); }
+            Path logFile = absoluteLogDir.resolve("build-" + buildId + ".log");
+            if (Files.exists(logFile)) {
+                return Files.readString(logFile);
+            }
+        } catch (IOException e) { log.warn("读取日志文件失败 buildId={}", buildId, e); }
+
+        // 3) 文件不存在 → 从数据库兜底
+        Build build = buildRepository.findById(buildId).orElse(null);
+        if (build != null && build.getLogContent() != null && !build.getLogContent().isBlank()) {
+            return build.getLogContent();
+        }
+
         return "日志不存在";
     }
 
@@ -652,6 +1203,87 @@ public class BuildService {
                 log.info("已取消构建 #{}", buildId);
             }
         }
+    }
+
+    /** 删除构建记录（含日志缓存清理、运行中进程终止） */
+    public Build deleteBuild(Long buildId) {
+        Build build = buildRepository.findById(buildId)
+                .orElseThrow(() -> new RuntimeException("构建记录不存在: " + buildId));
+
+        // 如果正在运行则先终止
+        if ("RUNNING".equals(build.getStatus())) {
+            Process proc = runningProcesses.remove(buildId);
+            if (proc != null) proc.destroy();
+        }
+
+        // 清理日志缓存
+        logCache.remove(buildId);
+
+        // 删除日志文件
+        try {
+            Files.deleteIfExists(absoluteLogDir.resolve("build-" + buildId + ".log"));
+        } catch (IOException ignored) {}
+
+        buildRepository.delete(build);
+        log.info("已删除构建记录 #{}", buildId);
+        return build;
+    }
+
+    /** 检查项目工作目录状态（供前端诊断用） */
+    public Map<String, Object> checkWorkspace(Long projectId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        try {
+            Project project = projectRepository.findById(projectId).orElse(null);
+            if (project == null) {
+                result.put("error", "项目不存在");
+                return result;
+            }
+            result.put("projectId", projectId);
+            result.put("projectName", project.getName());
+            result.put("projectCode", project.getCode());
+            result.put("gitUrl", project.getGitUrl());
+            result.put("gitBranch", project.getGitBranch());
+
+            Path workspacePath = resolveWorkspaceRoot().resolve(project.getCode());
+            result.put("workspacePath", workspacePath.toString());
+            result.put("workspaceExists", Files.exists(workspacePath));
+            result.put("isGitRepo", Files.exists(workspacePath.resolve(".git")));
+
+            if (Files.exists(workspacePath)) {
+                // 列出一级文件
+                List<String> rootFiles = new java.util.ArrayList<>();
+                try (var stream = Files.list(workspacePath)) {
+                    for (Path p : stream.sorted().toList()) {
+                        String name = p.getFileName().toString();
+                        if (Files.isDirectory(p)) name += "/";
+                        rootFiles.add(name);
+                    }
+                }
+                result.put("rootFiles", rootFiles);
+
+                // 检查关键构建文件
+                Path pomXml = findFile(workspacePath, "pom.xml");
+                result.put("hasPomXml", pomXml != null);
+                if (pomXml != null) result.put("pomXmlPath", workspacePath.relativize(pomXml).toString());
+
+                Path packageJson = findFile(workspacePath, "package.json");
+                result.put("hasPackageJson", packageJson != null);
+                if (packageJson != null) result.put("packageJsonPath", workspacePath.relativize(packageJson).toString());
+
+                Path buildGradle = findFile(workspacePath, "build.gradle");
+                result.put("hasBuildGradle", buildGradle != null);
+
+                // Maven wrapper
+                result.put("hasMvnw", Files.exists(workspacePath.resolve("mvnw"))
+                        || Files.exists(workspacePath.resolve("mvnw.cmd")));
+            }
+
+            result.put("ok", true);
+        } catch (Exception e) {
+            result.put("ok", false);
+            result.put("error", e.getMessage());
+        }
+        return result;
     }
 
     private static class StageDef {

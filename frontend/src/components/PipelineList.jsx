@@ -33,6 +33,7 @@ export default function PipelineList() {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(DEFAULT_FORM)
   const [search, setSearch] = useState('')
+  const [toast, setToast] = useState(null) // { text, type: 'info'|'error' }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -69,10 +70,24 @@ export default function PipelineList() {
   }
 
   const handleSave = async () => {
+    // 基本字段校验
+    if (!form.name.trim()) {
+      alert('请输入流水线名称')
+      return
+    }
+    if (!form.projectId) {
+      alert('请选择所属项目（请先在项目管理中创建项目）')
+      return
+    }
     try {
-      // Validate JSON
+      // 验证 JSON 格式
       JSON.parse(form.definition)
-      const data = { ...form, projectId: Number(form.projectId) }
+      const data = {
+        ...form,
+        name: form.name.trim(),
+        projectId: Number(form.projectId),
+        cronEnabled: form.cronEnabled || false,
+      }
       if (editing) {
         await updatePipeline(editing.id, data)
       } else {
@@ -81,8 +96,11 @@ export default function PipelineList() {
       setShowModal(false)
       load()
     } catch (e) {
-      if (e instanceof SyntaxError) alert('流水线定义不是有效的 JSON，请检查格式')
-      else alert('保存失败: ' + e.message)
+      if (e instanceof SyntaxError) {
+        alert('流水线定义不是有效的 JSON，请检查格式\n\n提示：确保所有括号和引号正确配对')
+      } else {
+        alert('保存失败: ' + (e.message || '未知错误'))
+      }
     }
   }
 
@@ -92,10 +110,15 @@ export default function PipelineList() {
   }
 
   const handleTrigger = async (p, pid) => {
+    setToast({ text: '构建触发中...', type: 'info' })
     try {
       await triggerBuild(pid, p.id)
-      alert('构建已触发！可在"构建记录"中查看进度')
-    } catch (e) { alert('触发失败: ' + e.message) }
+      setToast({ text: '构建已触发！可在"构建记录"中查看进度', type: 'info' })
+      setTimeout(() => setToast(null), 3000)
+    } catch (e) {
+      setToast({ text: '触发失败: ' + e.message, type: 'error' })
+      setTimeout(() => setToast(null), 4000)
+    }
   }
 
   const getProjectName = (pid) => {
@@ -249,6 +272,12 @@ export default function PipelineList() {
               <button className="btn btn-primary" onClick={handleSave}>{editing ? '保存' : '创建'}</button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Toast notification */}
+      {toast && (
+        <div className={`toast toast-${toast.type}`}>
+          {toast.text}
         </div>
       )}
     </>

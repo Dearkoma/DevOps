@@ -74,4 +74,19 @@ public class NotificationService {
             notificationRepository.save(n);
         });
     }
+
+    /** 删除单条通知 */
+    public void deleteNotification(Long id) {
+        notificationRepository.deleteById(id);
+        log.info("已删除通知 #{}", id);
+    }
+
+    /** 清空全部通知 */
+    public int deleteAllNotifications(String username) {
+        List<Notification> all = notificationRepository
+                .findByRecipientOrRecipientIsNullOrderByCreatedAtDesc(username);
+        notificationRepository.deleteAll(all);
+        log.info("已清空 {} 条通知", all.size());
+        return all.size();
+    }
 }

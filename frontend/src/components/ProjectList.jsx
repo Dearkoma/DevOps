@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { fetchProjects, createProject, updateProject, deleteProject, fetchPipelines, fetchEnvironments, triggerBuild, fetchBuilds } from '../api'
+import { fetchProjects, createProject, updateProject, deleteProject, fetchPipelines, fetchEnvironments, triggerBuild, fetchBuilds, checkWorkspace } from '../api'
 
 const LANGUAGES = ['Java', 'Node.js', 'Python', 'Go', 'Rust', 'Other']
 const FRAMEWORKS = ['Spring Boot', 'Express', 'Django', 'Gin', 'Other']
@@ -27,6 +27,8 @@ export default function ProjectList() {
   const [detailPipelines, setDetailPipelines] = useState([])
   const [detailBuilds, setDetailBuilds] = useState([])
   const [detailEnvs, setDetailEnvs] = useState([])
+  const [wsCheckResult, setWsCheckResult] = useState(null)
+  const [wsChecking, setWsChecking] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -74,6 +76,7 @@ export default function ProjectList() {
 
   const openDetail = async (p) => {
     setDetailProject(p)
+    setWsCheckResult(null)
     try {
       const [pls, bs, es] = await Promise.all([
         fetchPipelines(p.id),
@@ -84,6 +87,20 @@ export default function ProjectList() {
       setDetailBuilds(bs)
       setDetailEnvs(es)
     } catch (e) { console.error(e) }
+  }
+
+  const handleCheckWorkspace = async () => {
+    if (!detailProject) return
+    setWsChecking(true)
+    setWsCheckResult(null)
+    try {
+      const res = await checkWorkspace(detailProject.id)
+      setWsCheckResult(res)
+    } catch (e) {
+      setWsCheckResult({ error: '检查失败: ' + e.message, ok: false })
+    } finally {
+      setWsChecking(false)
+    }
   }
 
   const handleTriggerBuild = async (pipeline) => {
@@ -227,17 +244,90 @@ export default function ProjectList() {
                 <div className="detail-item"><div className="label">项目编码</div><div className="value"><code>{detailProject.code}</code></div></div>
                 <div className="detail-item"><div className="label">语言</div><div className="value">{detailProject.language} / {detailProject.buildTool}</div></div>
                 <div className="detail-item"><div className="label">Git 地址</div><div className="value">
-                  {detailProject.gitUrl ? <a href={detailProject.gitUrl} target="_blank" rel="noreferrer">{detailProject.gitUrl}</a> : '-'}
+                  {detailProject.gitUrl ? <a href={detailProject.gitUrl} target="_blank" rel="noreferrer">{detailProject.gitUrl}</a> : '未配置'}
                 </div></div>
-                <div className="detail-item"><div className="label">分支</div><div className="value">{detailProject.gitBranch}</div></div>
+                <div className="detail-item"><div className="label">分支</div><div className="value">{detailProject.gitBranch || 'main'}</div></div>
                 <div className="detail-item" style={{ gridColumn: '1 / -1' }}><div className="label">构建命令</div><div className="value"><code>{detailProject.buildCommand || '-'}</code></div></div>
                 <div className="detail-item" style={{ gridColumn: '1 / -1' }}><div className="label">描述</div><div className="value">{detailProject.description || '-'}</div></div>
+              </div>
+
+              {/* --- 工作目录检查 --- */}
+              <div style={{ marginTop: 12, borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>📁 工作目录</span>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={handleCheckWorkspace}
+                    disabled={wsChecking}
+                    style={{ fontSize: 12 }}
+                  >
+                    {wsChecking ? '⏳ 检查中...' : '🔍 检查工作目录'}
+                  </button>
+                </div>
+
+                {wsCheckResult && (
+                  <div style={{
+                    marginTop: 8, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+                    background: wsCheckResult.error ? '#fef2f2' : wsCheckResult.ok ? '#f0fdf4' : '#fffbeb',
+                    border: `1px solid ${wsCheckResult.error ? '#fecaca' : wsCheckResult.ok ? '#bbf7d0' : '#fcd34d'}`,
+                    color: '#333', lineHeight: 1.7, maxHeight: 260, overflow: 'auto'
+                  }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      {wsCheckResult.workspaceExists ? '✅ 目录已就绪' : '⚠️ 目录尚未创建'}
+                    </div>
+                    <div>路径: <code style={{ fontSize: 11 }}>{wsCheckResult.workspacePath}</code></div>
+                    <div>Git 仓库: {wsCheckResult.isGitRepo ? '✅ 是' : '❌ 否（首次构建时会自动克隆）'}</div>
+
+                    {wsCheckResult.hasPomXml !== undefined && (
+                      <div>pom.xml: {wsCheckResult.hasPomXml
+                        ? `✅ ${wsCheckResult.pomXmlPath || ''}` : '❌ 未找到'}</div>
+                    )}
+                    {wsCheckResult.hasPackageJson !== undefined && (
+                      <div>package.json: {wsCheckResult.hasPackageJson
+                        ? `✅ ${wsCheckResult.packageJsonPath || ''}` : '❌ 未找到'}</div>
+                    )}
+                    {wsCheckResult.hasMvnw !== undefined && (
+                      <div>Maven Wrapper: {wsCheckResult.hasMvnw ? '✅' : '❌'}</div>
+                    )}
+
+                    {wsCheckResult.rootFiles && wsCheckResult.rootFiles.length > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <div style={{ fontWeight: 600 }}>根目录文件:</div>
+                        <div style={{ wordBreak: 'break-all', color: '#666' }}>
+                          {wsCheckResult.rootFiles.join(', ')}
+                        </div>
+                      </div>
+                    )}
+
+                    {wsCheckResult.error && !wsCheckResult.workspaceExists && (
+                      <div style={{ color: '#991b1b', marginTop: 4 }}>
+                        ⚠️ {wsCheckResult.error}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="detail-section">
               <h4>流水线 ({detailPipelines.length})</h4>
-              {detailPipelines.length === 0 ? <p style={{color:'#9ca3af',fontSize:13}}>暂无流水线</p> : (
+              {detailPipelines.length === 0 ? (
+                <div style={{ padding: '14px 16px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 13 }}>
+                  <div style={{ color: '#92400e', fontWeight: 600, marginBottom: 6 }}>
+                    ⚠️ 暂无流水线
+                  </div>
+                  <div style={{ color: '#a16207', marginBottom: 10 }}>
+                    构建和部署必须通过流水线触发，请先创建至少一条流水线。
+                  </div>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => { setDetailProject(null); navigate('/pipelines') }}
+                    style={{ fontSize: 12 }}
+                  >
+                    🔧 创建流水线
+                  </button>
+                </div>
+              ) : (
                 <div className="table-container">
                   <table>
                     <thead><tr><th>名称</th><th>触发方式</th><th>操作</th></tr></thead>

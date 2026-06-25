@@ -63,4 +63,13 @@ public class Build {
 
     @Column(length = 500)
     private String branch;  // 实际构建的分支
+
+    @Column
+    private Boolean skipDocker = false;  // 是否跳过 Docker 构建阶段
+
+    @Column
+    private Boolean skipK8s = false;  // 是否跳过 K8s 部署阶段
+
+    @Column(columnDefinition = "LONGTEXT")
+    private String logContent;  // 构建日志内容（数据库存储兜底）
 }

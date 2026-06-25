@@ -104,4 +104,26 @@ public class DeploymentController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
+
+    /** 删除部署历史 */
+    @DeleteMapping("/history/{id}")
+    public ResponseEntity<?> deleteHistory(@PathVariable Long id) {
+        try {
+            deploymentService.deleteDeploymentHistory(id);
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** 删除部署申请（仅允许 REJECTED/DEPLOYED 状态） */
+    @DeleteMapping("/request/{id}")
+    public ResponseEntity<?> deleteRequest(@PathVariable Long id) {
+        try {
+            deploymentService.deleteDeploymentRequest(id);
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }

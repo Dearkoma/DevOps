@@ -95,7 +95,7 @@ public class SecurityConfig {
                 // ========== 构建操作 ==========
                 // 触发构建: ADMIN + MANAGER + DEVELOPER
                 .requestMatchers(HttpMethod.POST, "/api/builds/trigger").hasAnyRole("ADMIN", "MANAGER", "DEVELOPER")
-                // 取消构建: ADMIN + MANAGER
+                // 取消/删除构建: ADMIN + MANAGER
                 .requestMatchers(HttpMethod.DELETE, "/api/builds/**").hasAnyRole("ADMIN", "MANAGER")
 
                 // ========== 部署操作 ==========
@@ -104,8 +104,15 @@ public class SecurityConfig {
                 // 审批/拒绝: ADMIN + MANAGER
                 .requestMatchers("/api/deployments/approve/**").hasAnyRole("ADMIN", "MANAGER")
                 .requestMatchers("/api/deployments/reject/**").hasAnyRole("ADMIN", "MANAGER")
-                // 回滚: ADMIN + MANAGER
+                // 回滚 + 删除部署: ADMIN + MANAGER
                 .requestMatchers(HttpMethod.POST, "/api/deployments/rollback/**").hasAnyRole("ADMIN", "MANAGER")
+                .requestMatchers(HttpMethod.DELETE, "/api/deployments/**").hasAnyRole("ADMIN", "MANAGER")
+
+                // ========== 服务实例管理 ==========
+                .requestMatchers(HttpMethod.DELETE, "/api/instances/**").hasAnyRole("ADMIN", "MANAGER")
+
+                // ========== 通知管理 ==========
+                .requestMatchers(HttpMethod.DELETE, "/api/notifications/**").hasAnyRole("ADMIN", "MANAGER")
 
                 // ========== 制品操作 ==========
                 .requestMatchers(HttpMethod.DELETE, "/api/artifacts/**").hasAnyRole("ADMIN", "MANAGER")

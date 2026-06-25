@@ -32,10 +32,13 @@ export default function App() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="projects" element={<ProjectList />} />
             <Route path="projects/:projectId/pipelines" element={<PipelineList />} />
+            <Route path="pipelines" element={<PipelineList />} />
             <Route path="builds" element={<BuildList />} />
             <Route path="deployments" element={<DeploymentList />} />
             <Route path="environments" element={<EnvironmentList />} />
             <Route path="instances" element={<InstanceList />} />
+            <Route path="instances/docker" element={<InstanceList />} />
+            <Route path="instances/k8s" element={<InstanceList />} />
             <Route path="templates" element={<TemplateList />} />
             <Route path="audit" element={<ProtectedRoute requireAdmin><AuditLogList /></ProtectedRoute>} />
             <Route path="schedules" element={<SchedulerList />} />

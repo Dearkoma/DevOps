@@ -25,16 +25,35 @@ public class BuildController {
         try {
             String buildParams = null;
             String branch = null;
+            boolean skipDocker = false;
+            boolean skipK8s = false;
             if (body != null) {
                 if (body.containsKey("buildParams")) {
                     Object p = body.get("buildParams");
-                    buildParams = p instanceof String ? (String) p : p.toString();
+                    buildParams = p == null ? null : (p instanceof String ? (String) p : p.toString());
                 }
                 if (body.containsKey("branch")) {
-                    branch = (String) body.get("branch");
+                    Object b = body.get("branch");
+                    branch = b == null ? null : (b instanceof String ? (String) b : b.toString());
+                }
+                // 接收独立的跳过标志（向后兼容旧的 deployTarget 字段）
+                if (body.containsKey("skipDocker")) {
+                    skipDocker = Boolean.TRUE.equals(body.get("skipDocker"));
+                }
+                if (body.containsKey("skipK8s")) {
+                    skipK8s = Boolean.TRUE.equals(body.get("skipK8s"));
+                }
+                // 兼容旧版 deployTarget 参数
+                if (body.containsKey("deployTarget") && !body.containsKey("skipDocker") && !body.containsKey("skipK8s")) {
+                    String dt = body.get("deployTarget").toString().toUpperCase();
+                    switch (dt) {
+                        case "NONE":  skipDocker = true;  skipK8s = true;  break;
+                        case "DOCKER": skipDocker = false; skipK8s = true;  break;
+                        case "K8S":    skipDocker = false; skipK8s = false; break;
+                    }
                 }
             }
-            Build build = buildService.triggerBuild(projectId, pipelineId, triggeredBy, buildParams, branch);
+            Build build = buildService.triggerBuild(projectId, pipelineId, triggeredBy, buildParams, branch, skipDocker, skipK8s);
             return ResponseEntity.ok(build);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -64,5 +83,21 @@ public class BuildController {
     public ResponseEntity<Void> cancel(@PathVariable Long id) {
         buildService.cancelBuild(id);
         return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteBuild(@PathVariable Long id) {
+        try {
+            buildService.deleteBuild(id);
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** 检查项目工作目录状态 —— 验证 Git 克隆情况和构建文件 */
+    @GetMapping("/workspace-check")
+    public ResponseEntity<?> workspaceCheck(@RequestParam Long projectId) {
+        return ResponseEntity.ok(buildService.checkWorkspace(projectId));
     }
 }
