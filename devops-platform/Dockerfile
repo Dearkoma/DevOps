@@ -5,7 +5,8 @@
 # ============================================================
 
 # ---------- Stage 1: Build Frontend ----------
-FROM node:22-slim AS frontend-builder
+# node:22-slim → 阿里云镜像（Docker Hub 国内被墙）
+FROM registry.cn-hangzhou.aliyuncs.com/library/node:22-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -30,7 +31,8 @@ COPY frontend/ ./
 RUN npm run build -- --outDir dist
 
 # ---------- Stage 2: Build Backend ----------
-FROM maven:3.9-eclipse-temurin-21 AS backend-builder
+# maven:3.9-eclipse-temurin-21 → 阿里云镜像
+FROM registry.cn-hangzhou.aliyuncs.com/library/maven:3.9-eclipse-temurin-21 AS backend-builder
 
 WORKDIR /app/devops-platform
 
@@ -62,7 +64,8 @@ COPY --from=frontend-builder /app/frontend/dist ./src/main/resources/static
 RUN mvn clean package -DskipTests -B
 
 # ---------- Stage 3: Runtime ----------
-FROM eclipse-temurin:21-jre-alpine
+# eclipse-temurin:21-jre-alpine → 阿里云镜像
+FROM registry.cn-hangzhou.aliyuncs.com/library/eclipse-temurin:21-jre-alpine
 
 LABEL maintainer="devops-platform"
 LABEL description="DevOps Continuous Delivery Platform"
