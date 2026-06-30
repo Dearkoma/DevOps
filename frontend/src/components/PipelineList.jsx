@@ -34,11 +34,10 @@ export default function PipelineList() {
   const [form, setForm] = useState(DEFAULT_FORM)
   const [search, setSearch] = useState('')
   const [toast, setToast] = useState(null) // { text, type: 'info'|'error' }
-
-  // 触发构建选项弹窗
-  const [showTriggerModal, setShowTriggerModal] = useState(false)
-  const [triggerPipeline, setTriggerPipeline] = useState(null)
-  const [triggerOpts, setTriggerOpts] = useState({ skipDocker: false, skipK8s: false })
+  const [showBuildModal, setShowBuildModal] = useState(false)
+  const [buildPendingPipeline, setBuildPendingPipeline] = useState(null)
+  const [buildSkipDocker, setBuildSkipDocker] = useState(false)
+  const [buildSkipK8s, setBuildSkipK8s] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -84,10 +83,6 @@ export default function PipelineList() {
       alert('请选择所属项目（请先在项目管理中创建项目）')
       return
     }
-    if (form.cronEnabled && !form.cronExpression?.trim()) {
-      alert('已勾选"启用定时构建"，但 Cron 表达式为空。请填写表达式或取消勾选"启用"')
-      return
-    }
     try {
       // 验证 JSON 格式
       JSON.parse(form.definition)
@@ -118,25 +113,20 @@ export default function PipelineList() {
     try { await deletePipeline(p.id); load() } catch (e) { alert('删除失败: ' + e.message) }
   }
 
-  const handleTrigger = (p) => {
-    setTriggerPipeline(p)
-    setTriggerOpts({ skipDocker: false, skipK8s: false })
-    setShowTriggerModal(true)
+  const handleTrigger = async (p, pid) => {
+    setBuildPendingPipeline({ pipeline: p, projectId: pid })
+    setBuildSkipDocker(false)
+    setBuildSkipK8s(false)
+    setShowBuildModal(true)
   }
 
-  const confirmTrigger = async () => {
-    if (!triggerPipeline) return
-    setShowTriggerModal(false)
+  const handleConfirmBuild = async () => {
+    if (!buildPendingPipeline) return
+    const { pipeline, projectId } = buildPendingPipeline
+    setShowBuildModal(false)
     setToast({ text: '构建触发中...', type: 'info' })
     try {
-      await triggerBuild(
-        triggerPipeline.projectId,
-        triggerPipeline.id,
-        null,  // buildParams
-        null,  // branch
-        triggerOpts.skipDocker,
-        triggerOpts.skipK8s
-      )
+      await triggerBuild(projectId, pipeline.id, null, null, buildSkipDocker, buildSkipK8s)
       setToast({ text: '构建已触发！可在"构建记录"中查看进度', type: 'info' })
       setTimeout(() => setToast(null), 3000)
     } catch (e) {
@@ -218,7 +208,7 @@ export default function PipelineList() {
                       <td style={{ color: '#9ca3af', fontSize: 12 }}>{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '-'}</td>
                       <td>
                         <div className="btn-group">
-                          {canTrigger && <button className="btn btn-success btn-sm" onClick={() => handleTrigger(p)}>▶ 执行</button>}
+                          {canTrigger && <button className="btn btn-success btn-sm" onClick={() => handleTrigger(p, p.projectId)}>▶ 执行</button>}
                           {canManage && <button className="btn btn-outline btn-sm" onClick={() => openEdit(p)}>✏️</button>}
                           {canManage && <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p)}>🗑</button>}
                         </div>
@@ -276,7 +266,7 @@ export default function PipelineList() {
                     type="checkbox"
                     checked={form.cronEnabled}
                     onChange={e => setForm({...form, cronEnabled: e.target.checked})}
-                    title={form.cronExpression ? '勾选后保存即启用定时构建' : '请先填写 Cron 表达式再启用'}
+                    disabled={!form.cronExpression}
                   />
                   启用
                 </label>
@@ -298,44 +288,64 @@ export default function PipelineList() {
           </div>
         </div>
       )}
-      {/* 构建选项弹窗 */}
-      {showTriggerModal && triggerPipeline && (
-        <div className="modal-overlay" onClick={() => setShowTriggerModal(false)}>
-          <div className="modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
-            <h3>🚀 执行构建</h3>
-            <p style={{ fontSize: 14, color: '#374151', marginBottom: 4 }}>
-              流水线: <strong>{triggerPipeline.name}</strong>
-            </p>
-            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>
-              选择要跳过的阶段，只运行需要的部分
-            </p>
 
-            <div style={{ background: '#f9fafb', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0', fontSize: 14 }}>
+      {/* Build trigger confirmation modal */}
+      {showBuildModal && (
+        <div className="modal-overlay" onClick={() => setShowBuildModal(false)}>
+          <div className="modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+            <h3>⚡ 触发构建</h3>
+            {buildPendingPipeline && (
+              <p style={{ color: '#6b7280', marginBottom: 16, fontSize: 14 }}>
+                流水线: <strong>{buildPendingPipeline.pipeline.name}</strong>
+              </p>
+            )}
+            <div style={{
+              background: '#f9fafb', borderRadius: 10, padding: 16,
+              border: '1px solid #e5e7eb', marginBottom: 16
+            }}>
+              <label style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10,
+                padding: '8px 0', cursor: 'pointer', fontSize: 14,
+                borderBottom: '1px solid #e5e7eb'
+              }}>
                 <input
                   type="checkbox"
-                  checked={triggerOpts.skipDocker}
-                  onChange={e => setTriggerOpts({ ...triggerOpts, skipDocker: e.target.checked })}
+                  checked={buildSkipDocker}
+                  onChange={e => setBuildSkipDocker(e.target.checked)}
+                  style={{ marginTop: 2 }}
                 />
-                <span>🐳 跳过 Docker 构建</span>
-                <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>不构建 & 推送镜像</span>
+                <div>
+                  <div style={{ fontWeight: 600 }}>🐳 跳过 Docker</div>
+                  <div style={{ color: '#9ca3af', fontSize: 12 }}>不构建和推送 Docker 镜像</div>
+                </div>
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0', fontSize: 14 }}>
+              <label style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10,
+                padding: '8px 0', cursor: 'pointer', fontSize: 14
+              }}>
                 <input
                   type="checkbox"
-                  checked={triggerOpts.skipK8s}
-                  onChange={e => setTriggerOpts({ ...triggerOpts, skipK8s: e.target.checked })}
+                  checked={buildSkipK8s}
+                  onChange={e => setBuildSkipK8s(e.target.checked)}
+                  style={{ marginTop: 2 }}
                 />
-                <span>☸️ 跳过 K8s 部署</span>
-                <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>不部署到集群</span>
+                <div>
+                  <div style={{ fontWeight: 600 }}>☸️ 跳过 Kubectl</div>
+                  <div style={{ color: '#9ca3af', fontSize: 12 }}>不执行 K8s 部署</div>
+                </div>
               </label>
             </div>
-
+            <div style={{
+              fontSize: 12, color: '#6b7280', marginBottom: 16, padding: '8px 12px',
+              background: '#eff6ff', borderRadius: 8, border: '1px solid #bfdbfe'
+            }}>
+              将执行: 编译+测试
+              {!buildSkipDocker && ' + Docker'}
+              {!buildSkipK8s && ' + K8s部署'}
+            </div>
             <div className="btn-group" style={{ justifyContent: 'flex-end' }}>
-              <button className="btn btn-outline" onClick={() => setShowTriggerModal(false)}>取消</button>
-              <button className="btn btn-success" onClick={confirmTrigger}>
-                ▶ 立即执行
-              </button>
+              <button className="btn btn-outline" onClick={() => setShowBuildModal(false)}>取消</button>
+              <button className="btn btn-primary" onClick={handleConfirmBuild}>▶ 确认构建</button>
             </div>
           </div>
         </div>
