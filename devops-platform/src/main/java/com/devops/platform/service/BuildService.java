@@ -585,6 +585,28 @@ public class BuildService {
         int exitCode = runCommand(buildContext.toString(), command, logBuf, buildId);
         if (exitCode != 0) { logBuf.append("[ERROR] Docker 构建失败\n"); return false; }
         logBuf.append("[DOCKER] 镜像构建完成\n");
+
+        // 检查是否有前端 Dockerfile，如果有则构建前端 nginx 镜像（前后端分离部署）
+        Path frontendDockerfile = projectRoot.resolve("Dockerfile.frontend");
+        if (!Files.exists(frontendDockerfile)) {
+            frontendDockerfile = workspacePath.resolve("Dockerfile.frontend");
+        }
+        if (Files.exists(frontendDockerfile)) {
+            String frontendDockerfileRel = buildContext.relativize(frontendDockerfile).toString();
+            String frontendImageName = dockerRegistry.isBlank() ? project.getCode() + "-frontend:latest"
+                    : dockerRegistry + "/" + project.getCode() + "-frontend:latest";
+            String frontendCmd = dockerCommand + " build -t " + frontendImageName
+                    + " -f " + frontendDockerfileRel + " .";
+            logBuf.append("[DOCKER] 构建前端镜像: ").append(frontendImageName).append("\n");
+            appendLog(buildId, logBuf.toString());
+            int frontendExit = runCommand(buildContext.toString(), frontendCmd, logBuf, buildId);
+            if (frontendExit != 0) {
+                logBuf.append("[ERROR] 前端镜像构建失败\n");
+                return false;
+            }
+            logBuf.append("[DOCKER] 前端镜像构建完成\n");
+        }
+
         return true;
     }
 
@@ -671,6 +693,13 @@ public class BuildService {
         int containerPort = 8080;
         if ("Node.js".equalsIgnoreCase(project.getLanguage())) containerPort = 3000;
 
+        // 检查 workspace 是否有 frontend/ 目录（前后端分离部署）
+        boolean hasFrontend = false;
+        try {
+            Path workspacePath = resolveWorkspaceRoot().resolve(project.getCode());
+            hasFrontend = Files.exists(workspacePath.resolve("frontend"));
+        } catch (IOException ignored) {}
+
         // Java/Spring Boot 项目需要连接宿主机 MySQL，通过 host.docker.internal 访问
         String envSection = "";
         if (project.getLanguage() == null || !"Node.js".equalsIgnoreCase(project.getLanguage())) {
@@ -683,6 +712,27 @@ public class BuildService {
                 "            - name: SPRING_DATASOURCE_PASSWORD\n" +
                 "              value: \"Dearkoma.962464\"\n";
         }
+
+        // 前端 nginx 容器（如果有 frontend 目录）
+        String frontendContainer = "";
+        if (hasFrontend) {
+            frontendContainer =
+                "        - name: " + appName + "-frontend\n" +
+                "          image: " + appName + "-frontend:latest\n" +
+                "          imagePullPolicy: IfNotPresent\n" +
+                "          ports:\n" +
+                "            - containerPort: 80\n" +
+                "          resources:\n" +
+                "            requests:\n" +
+                "              memory: \"64Mi\"\n" +
+                "              cpu: \"50m\"\n" +
+                "            limits:\n" +
+                "              memory: \"128Mi\"\n" +
+                "              cpu: \"100m\"\n";
+        }
+
+        // Service targetPort: 有前端时指向 nginx(80)，否则指向后端容器端口
+        int serviceTargetPort = hasFrontend ? 80 : containerPort;
 
         return "apiVersion: apps/v1\n" +
                 "kind: Deployment\n" +
@@ -713,6 +763,7 @@ public class BuildService {
                 "            limits:\n" +
                 "              memory: \"512Mi\"\n" +
                 "              cpu: \"500m\"\n" +
+                (hasFrontend ? frontendContainer : "") +
                 "---\n" +
                 "apiVersion: v1\n" +
                 "kind: Service\n" +
@@ -724,7 +775,7 @@ public class BuildService {
                 "    app: " + appName + "\n" +
                 "  ports:\n" +
                 "    - port: 8080\n" +
-                "      targetPort: " + containerPort + "\n" +
+                "      targetPort: " + serviceTargetPort + "\n" +
                 "  type: ClusterIP\n";
     }
 
