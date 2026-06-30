@@ -554,27 +554,49 @@ public class InstanceMonitorService {
         }
     }
 
+    /** 安全执行 kubectl 命令（ProcessBuilder 传参数组，避免 shell 引号解析问题） */
+    private ProcessResult kubectl(String... args) {
+        ProcessResult result = new ProcessResult();
+        try {
+            List<String> cmdList = new java.util.ArrayList<>();
+            cmdList.add("kubectl");
+            for (String a : args) cmdList.add(a);
+            ProcessBuilder pb = new ProcessBuilder(cmdList);
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            StringBuilder out = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) out.append(line).append("\n");
+            }
+            boolean finished = proc.waitFor(10, TimeUnit.SECONDS);
+            if (!finished) { proc.destroyForcibly(); result.success = false; result.output = "timeout"; return result; }
+            result.output = out.toString().trim();
+            result.success = proc.exitValue() == 0;
+        } catch (Exception e) {
+            result.success = false;
+            result.output = e.getMessage();
+        }
+        return result;
+    }
+
     private Map<String, Object> exposeK8sToExternal(ServiceInstance inst) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
         String svcName = resolveK8sServiceName(inst);
 
         // 先检查 Service 是否存在
-        String existsCmd = String.format("kubectl get svc %s -n %s -o name 2>&1", svcName, ns);
-        ProcessResult existsR = runCommand(existsCmd);
+        ProcessResult existsR = kubectl("get", "svc", svcName, "-n", ns, "-o", "name");
         if (!existsR.success || existsR.output.contains("not found") || existsR.output.contains("NotFound")) {
             return Map.of("success", false, "error",
                     "K8s Service \"" + svcName + "\" 不存在于命名空间 \"" + ns + "\"，请确认部署已完成");
         }
 
-        // 检查是否已经是 NodePort
-        String checkCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.type}'", svcName, ns);
-        ProcessResult check = runCommand(checkCmd);
+        // 检查是否已经是 NodePort（用 -o jsonpath 直接取 .spec.type）
+        ProcessResult check = kubectl("get", "svc", svcName, "-n", ns, "-o", "jsonpath={.spec.type}");
         if (check.success && "NodePort".equals(check.output.trim())) {
-            // 已经是 NodePort，获取端口
-            String portCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.ports[0].nodePort}'", svcName, ns);
-            ProcessResult portR = runCommand(portCmd);
+            ProcessResult portR = kubectl("get", "svc", svcName, "-n", ns, "-o", "jsonpath={.spec.ports[0].nodePort}");
             int nodePort = -1;
-            try { nodePort = portR.success ? Integer.parseInt(portR.output.trim()) : -1; }
+            try { nodePort = Integer.parseInt(portR.output.trim()); }
             catch (NumberFormatException e) { /* ignore */ }
             return Map.of("success", true, "alreadyExposed", true,
                     "message", "服务已暴露到外部",
@@ -583,19 +605,19 @@ public class InstanceMonitorService {
         }
 
         // 将 ClusterIP 改为 NodePort
-        String patchCmd = String.format(
-                "kubectl patch svc %s -n %s -p '{\"spec\":{\"type\":\"NodePort\"}}'", svcName, ns);
-        ProcessResult patchR = runCommand(patchCmd);
+        //   因为 Windows cmd 无法正确传递带引号的 JSON，改用 kubectl patch 的 strategic merge 方式
+        String patchJson = "{\"spec\":{\"type\":\"NodePort\"}}";
+        ProcessResult patchR = kubectl("patch", "svc", svcName, "-n", ns,
+                "--type", "merge", "-p", patchJson);
         if (!patchR.success) {
             return Map.of("success", false, "error",
-                    "修改 Service 类型失败: " + patchR.errorOutput, "svcName", svcName);
+                    "修改 Service 类型失败: " + patchR.output, "svcName", svcName);
         }
 
         // 获取分配的 NodePort
-        String portCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.ports[0].nodePort}'", svcName, ns);
-        ProcessResult portR = runCommand(portCmd);
+        ProcessResult portR = kubectl("get", "svc", svcName, "-n", ns, "-o", "jsonpath={.spec.ports[0].nodePort}");
         int nodePort = -1;
-        try { nodePort = portR.success ? Integer.parseInt(portR.output.trim()) : -1; }
+        try { nodePort = Integer.parseInt(portR.output.trim()); }
         catch (NumberFormatException e) { /* ignore */ }
 
         return Map.of("success", true, "alreadyExposed", false,
