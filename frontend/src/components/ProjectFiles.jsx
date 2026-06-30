@@ -305,7 +305,7 @@ export default function ProjectFiles() {
             ) : files.length === 0 ? (
               <div style={{ padding: 32, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
                 {context === 'workspace'
-                  ? '工作目录尚未创建，请先触发一次构建'
+                  ? '📁 目录为空 — 可在此目录手动上传文件，或触发构建从 Git 拉取代码'
                   : '工作目录尚未创建，请先在「工作空间」标签触发构建拉取代码'}
               </div>
             ) : (
