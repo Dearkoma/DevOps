@@ -63,26 +63,30 @@ public class InstanceController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
-        instanceRepository.deleteById(id);
-        return ResponseEntity.ok().build();
-    }
-
-    /**
-     * 停止服务实例（Docker: docker stop / K8s: scale → 0）
-     */
-    @PostMapping("/{id}/stop")
-    public ResponseEntity<Map<String, Object>> stop(@PathVariable Long id) {
-        Map<String, Object> result = monitorService.stopInstance(id);
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.deleteInstanceAndCleanup(id);
         return ResponseEntity.ok(result);
     }
 
     /**
-     * 启动服务实例（Docker: docker start / K8s: scale → 1）
+     * 重启服务实例
+     * - Docker: docker restart
+     * - K8s:    kubectl rollout restart
      */
-    @PostMapping("/{id}/start")
-    public ResponseEntity<Map<String, Object>> start(@PathVariable Long id) {
-        Map<String, Object> result = monitorService.startInstance(id);
+    @PostMapping("/{id}/restart")
+    public ResponseEntity<Map<String, Object>> restart(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.restartInstance(id);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 停止服务实例
+     * - Docker: docker stop
+     * - K8s:    kubectl scale --replicas=0
+     */
+    @PostMapping("/{id}/stop")
+    public ResponseEntity<Map<String, Object>> stop(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.stopInstance(id);
         return ResponseEntity.ok(result);
     }
 
@@ -192,33 +196,6 @@ public class InstanceController {
             @PathVariable String name,
             @RequestParam(defaultValue = "devops") String namespace) {
         Map<String, Object> result = k8sClientService.deleteDeployment(name, namespace);
-        return ResponseEntity.ok(result);
-    }
-
-    /**
-     * 获取实例的访问信息（端口映射、访问 URL）
-     */
-    @GetMapping("/{id}/access")
-    public ResponseEntity<Map<String, Object>> getAccessInfo(@PathVariable Long id) {
-        Map<String, Object> info = monitorService.getAccessInfo(id);
-        return ResponseEntity.ok(info);
-    }
-
-    /**
-     * 启动 K8s 端口转发（对 ClusterIP 服务自动 kubectl port-forward）
-     */
-    @PostMapping("/{id}/port-forward")
-    public ResponseEntity<Map<String, Object>> startPortForward(@PathVariable Long id) {
-        Map<String, Object> result = monitorService.startPortForward(id);
-        return ResponseEntity.ok(result);
-    }
-
-    /**
-     * 停止 K8s 端口转发
-     */
-    @DeleteMapping("/{id}/port-forward")
-    public ResponseEntity<Map<String, Object>> stopPortForward(@PathVariable Long id) {
-        Map<String, Object> result = monitorService.stopPortForward(id);
         return ResponseEntity.ok(result);
     }
 

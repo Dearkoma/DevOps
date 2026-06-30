@@ -158,6 +158,8 @@ export const updateInstanceHealth = (id, data) => request(`/instances/${id}/heal
 export const fetchK8sStatus = () => request('/instances/k8s-status')
 export const reconnectK8s = () => request('/instances/k8s-reconnect', { method: 'POST' })
 export const fetchK8sNamespaces = () => request('/instances/k8s-namespaces')
+export const restartInstance = (id) => request(`/instances/${id}/restart`, { method: 'POST' })
+export const stopInstance = (id) => request(`/instances/${id}/stop`, { method: 'POST' })
 export const deleteInstance = (id) => request(`/instances/${id}`, { method: 'DELETE' })
 export const fetchAvailability = () => request('/instances/availability')
 export const fetchStatsByType = () => request('/instances/stats-by-type')
