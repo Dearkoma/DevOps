@@ -25,9 +25,14 @@
 - **⚠️ 开发模式下禁止跑 `npm run build`**：vite.config.js 的 outDir 指向 `../devops-platform/src/main/resources/static/`，一跑 build 就会重建 static/ 目录，导致 8080 又能直接访问前端页面，绕过登录限制。验证编译用 `npx vite build --outDir /tmp/check` 或直接看 HMR 是否报错。
 
 ## 可恢复机制
-- 当前最新提交 `45eb418`（2026-07-01 02:35）。
+- 当前最新提交 `7f63486`（2026-07-01 03:12 回滚至此）。
+- **已回滚的提交**（可通过 reflog 恢复）：
+  - `4f517c0` feat: 前端应用日志收集（React/Vue console）— 已回滚
+  - `c981c4c` fix: containers 接口改用 kubectl -o json + Jackson — 已回滚
+  - 恢复方式：`git reset --hard 4f517c0` 或 `git reset --hard c981c4c`
+- ⚠️ 当前 `7f63486` 状态下 containers 接口仍用旧 jsonpath 实现，可能返回空数组
 - 改代码前：`git stash` 或先 commit；改完可 `git diff`/`git checkout -- <file>` 回退。
-- 整体回退：`git reset --hard 45eb418`。
+- 整体回退：`git reset --hard 7f63486`。
 
 ## 关键路径速查
 - 配置：`devops-platform/src/main/resources/application.yml`（MySQL 密码在此改）

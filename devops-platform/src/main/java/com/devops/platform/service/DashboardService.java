@@ -22,6 +22,10 @@ public class DashboardService {
     private final DeploymentHistoryRepository deploymentHistoryRepository;
     private final ServiceInstanceRepository instanceRepository;
     private final NotificationRepository notificationRepository;
+    private final ArtifactRepository artifactRepository;
+    private final TemplateRepository templateRepository;
+    private final UserRepository userRepository;
+    private final AuditLogRepository auditLogRepository;
 
     public Map<String, Object> getDashboardStats() {
         Map<String, Object> stats = new HashMap<>();
@@ -40,6 +44,21 @@ public class DashboardService {
         stats.put("totalDeployments", deploymentHistoryRepository.count());
         stats.put("runningInstances", instanceRepository.findByStatus("RUNNING").size());
         stats.put("unreadNotifications", notificationRepository.countByIsReadFalse());
+
+        // 侧边栏计数
+        stats.put("totalInstances", instanceRepository.count());
+        long dockerCount = instanceRepository.findAll().stream()
+                .filter(i -> "DOCKER".equals(i.getDeployType())).count();
+        stats.put("dockerInstances", dockerCount);
+        stats.put("k8sInstances", instanceRepository.count() - dockerCount);
+        stats.put("totalArtifacts", artifactRepository.count());
+        stats.put("totalTemplates", templateRepository.count());
+        stats.put("totalUsers", userRepository.count());
+        stats.put("totalAuditLogs", auditLogRepository.count());
+        long scheduledPipelines = pipelineRepository.findAll().stream()
+                .filter(p -> p.getCronExpression() != null && !p.getCronExpression().isBlank()
+                        && Boolean.TRUE.equals(p.getCronEnabled())).count();
+        stats.put("totalSchedules", scheduledPipelines);
 
         return stats;
     }

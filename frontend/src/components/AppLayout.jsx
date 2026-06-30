@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { fetchDashboardStats, fetchInstances } from '../api'
 
 const allPages = [
   { path: '/dashboard', label: '监控看板', icon: '📊', minRole: 'VIEWER' },
@@ -32,11 +33,64 @@ function isParentActive(parentPath, location, children) {
   return false
 }
 
+function CountBadge({ count }) {
+  if (!count || count === 0) return null
+  const display = count > 999 ? '999+' : String(count)
+  return (
+    <span style={{
+      marginLeft: 'auto',
+      minWidth: 18, height: 18, padding: '0 5px',
+      borderRadius: 9,
+      background: 'rgba(108,99,255,0.3)',
+      color: '#a5a0ff',
+      fontSize: 11, fontWeight: 600,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      lineHeight: 1,
+    }}>{display}</span>
+  )
+}
+
 export default function AppLayout() {
   const { user, logout, canWrite } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [expanded, setExpanded] = useState({})
+  const [badgeCounts, setBadgeCounts] = useState({})
+
+  const fetchBadgeCounts = useCallback(async () => {
+    try {
+      const [stats, instances] = await Promise.all([
+        fetchDashboardStats(),
+        fetchInstances().catch(() => []),
+      ])
+      const dockerCount = (instances || []).filter(i => i.deployType === 'DOCKER').length
+      const k8sCount = (instances || []).filter(i => i.deployType === 'K8S').length
+      setBadgeCounts({
+        '/projects': stats.totalProjects ?? 0,
+        '/pipelines': stats.activePipelines ?? 0,
+        '/builds': stats.totalBuilds ?? 0,
+        '/schedules': stats.totalSchedules ?? 0,
+        '/artifacts': stats.totalArtifacts ?? 0,
+        '/deployments': stats.pendingDeployments ?? 0,
+        '/environments': stats.totalEnvironments ?? 0,
+        '/notifications': stats.unreadNotifications ?? 0,
+        '/instances': (instances || []).length,
+        '/instances/docker': dockerCount,
+        '/instances/k8s': k8sCount,
+        '/templates': stats.totalTemplates ?? 0,
+        '/audit': stats.totalAuditLogs ?? 0,
+        '/users': stats.totalUsers ?? 0,
+      })
+    } catch (e) {
+      // 静默失败，不影响导航
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchBadgeCounts()
+    const timer = setInterval(fetchBadgeCounts, 30000)
+    return () => clearInterval(timer)
+  }, [fetchBadgeCounts])
 
   const handleLogout = () => {
     logout()
@@ -75,7 +129,8 @@ export default function AppLayout() {
                     >
                       <span className="icon">{icon}</span>
                       {label}
-                      <span style={{ marginLeft: 'auto', fontSize: 10, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                      <CountBadge count={badgeCounts[path]} />
+                      <span style={{ fontSize: 10, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
                     </div>
                     {isExpanded && (
                       <div className="sidebar-submenu">
@@ -85,6 +140,7 @@ export default function AppLayout() {
                           className={({ isActive }) => 'sidebar-subitem ' + (isActive ? 'active' : '')}
                         >
                           全部实例
+                          <CountBadge count={badgeCounts[path]} />
                         </NavLink>
                         {children.map(c => (
                           <NavLink
@@ -94,6 +150,7 @@ export default function AppLayout() {
                           >
                             <span className="icon">{c.icon}</span>
                             {c.label}
+                            <CountBadge count={badgeCounts[c.path]} />
                           </NavLink>
                         ))}
                       </div>
@@ -106,6 +163,7 @@ export default function AppLayout() {
                   >
                     <span className="icon">{icon}</span>
                     {label}
+                    <CountBadge count={badgeCounts[path]} />
                   </NavLink>
                 )}
               </div>
