@@ -6,3 +6,14 @@
 
 **/node_modules/
 **/tmp/
+
+# 日志与运行时产物
+**/logs/
+**/cddata/
+**/data/workspace/
+*.log
+*.log.*
+
+# 论文产物与参考资料（非平台代码）
+outputs/
+参考文献/

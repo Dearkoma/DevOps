@@ -3,6 +3,22 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { fetchBuilds, fetchBuildLog, triggerBuild, cancelBuild, deleteBuild, fetchProjects, fetchPipelines } from '../api'
 
+// 小型 toast 组件（BuildList 内嵌）
+// type: 'success' | 'error' | 'info'
+function MiniToast({ children, onClick, type = 'info' }) {
+  const bgMap = { success: '#166534', error: '#7f1d1d', info: '#1f2937' }
+  const style = {
+    position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+    background: bgMap[type] || bgMap.info,
+    color: '#fff', padding: '12px 20px',
+    borderRadius: 10, fontSize: 14, boxShadow: '0 4px 16px rgba(0,0,0,.25)',
+    cursor: onClick ? 'pointer' : 'default',
+    display: 'flex', alignItems: 'center', gap: 10,
+    maxWidth: 400, animation: 'slideUp 0.3s ease',
+  }
+  return <div style={style} onClick={onClick}>{children}</div>
+}
+
 const STATUS_MAP = { SUCCESS: '成功', FAILED: '失败', RUNNING: '运行中', CANCELLED: '已取消' }
 
 export default function BuildList() {
@@ -32,6 +48,16 @@ export default function BuildList() {
 
   // Delete confirm modal
   const [deleteTarget, setDeleteTarget] = useState(null) // build object to delete
+
+  // 已通知的构建终态（id:status），防止重复弹通知
+  const notifiedRef = useRef(new Set())
+
+  // 通用操作结果 toast：{ msg, type: 'success'|'error'|'info', onClick? }
+  const [opToast, setOpToast] = useState(null)
+  const showToast = (msg, type = 'info', onClick = null, duration = 3500) => {
+    setOpToast({ msg, type, onClick })
+    setTimeout(() => setOpToast(null), duration)
+  }
 
   // ===== Log auto-scroll (sticky bottom) =====
   // logContainerRef   : the scrollable log <div>
@@ -87,6 +113,50 @@ export default function BuildList() {
     const timer = setInterval(() => load(false), 3000)
     return () => clearInterval(timer)
   }, [builds, load])
+
+  // ===== 检测新终态构建（SUCCESS/FAILED/CANCELLED），弹出通知 =====
+  // 用 notifiedRef 记录已通知的 "id:status"，刷新后不重复弹
+  useEffect(() => {
+    if (builds.length === 0) return
+    // 首次加载：把已有终态全部加入 notifiedRef，不弹通知
+    if (notifiedRef.current.size === 0) {
+      for (const b of builds) {
+        if (b.status === 'SUCCESS' || b.status === 'FAILED' || b.status === 'CANCELLED') {
+          notifiedRef.current.add(`${b.id}:${b.status}`)
+        }
+      }
+      return
+    }
+    // 检测新出现的终态构建
+    for (const b of builds) {
+      if (b.status !== 'SUCCESS' && b.status !== 'FAILED' && b.status !== 'CANCELLED') continue
+      const key = `${b.id}:${b.status}`
+      if (notifiedRef.current.has(key)) continue
+      notifiedRef.current.add(key)
+
+      if (b.status === 'SUCCESS') {
+        setOpToast({
+          msg: `✅ 构建 #${b.buildNumber} 成功！${b.skipK8s ? '' : ' 已部署到集群，点击查看详情'}`,
+          type: 'success',
+          onClick: b.skipK8s ? null : () => navigate('/instances'),
+        })
+        setTimeout(() => setOpToast(null), 6000)
+      } else if (b.status === 'FAILED') {
+        setOpToast({
+          msg: `❌ 构建 #${b.buildNumber} 失败，请查看日志`,
+          type: 'error',
+        })
+        setTimeout(() => setOpToast(null), 5000)
+      } else if (b.status === 'CANCELLED') {
+        setOpToast({
+          msg: `⏹ 构建 #${b.buildNumber} 已取消`,
+          type: 'info',
+        })
+        setTimeout(() => setOpToast(null), 4000)
+      }
+      break   // 一次只弹一个
+    }
+  }, [builds])
 
   // WebSocket log connection (fallback: polling)
   const logPollRef = useRef(null)
@@ -160,8 +230,8 @@ export default function BuildList() {
 
   // Trigger build
   const handleTrigger = async () => {
-    if (!triggerProject) return alert('请选择项目')
-    if (!triggerPipeline) return alert('请选择流水线。如该项目暂无流水线，请先前往流水线管理页面创建。')
+    if (!triggerProject) { showToast('⚠️ 请选择项目', 'error'); return }
+    if (!triggerPipeline) { showToast('⚠️ 请选择流水线。如该项目暂无流水线，请先前往流水线管理页面创建。', 'error'); return }
     try {
       let buildParams = null
       if (triggerVersion || triggerBranch || triggerEnv) {
@@ -176,7 +246,8 @@ export default function BuildList() {
       setTriggerProject(''); setTriggerPipeline(''); setTriggerPipeList([]); setAllPipeList([])
       setTriggerVersion(''); setTriggerBranch(''); setTriggerEnv('')
       load(false)
-    } catch (e) { alert('触发失败: ' + e.message) }
+      showToast('🚀 构建已触发，正在运行中...', 'success')
+    } catch (e) { showToast('❌ 触发失败：' + e.message, 'error') }
   }
 
   const loadPipelines = async (projectId) => {
@@ -206,7 +277,7 @@ export default function BuildList() {
   }
 
   const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text).then(() => alert('已复制到剪贴板'))
+    navigator.clipboard.writeText(text).then(() => showToast('📋 已复制到剪贴板', 'success'))
   }
 
   const formatLog = (text) => {
@@ -255,7 +326,7 @@ export default function BuildList() {
               className="btn btn-primary"
               onClick={() => {
                 if (projects.length === 0) {
-                  alert('当前没有任何项目，请先在项目管理中创建项目，然后为其配置流水线。')
+                  showToast('⚠️ 当前没有任何项目，请先在项目管理中创建项目，然后为其配置流水线。', 'error')
                   return
                 }
                 setShowTrigger(true)
@@ -328,7 +399,13 @@ export default function BuildList() {
                           {b.status === 'RUNNING' ? '📡 实时' : '📄 日志'}
                         </button>
                         {b.status === 'RUNNING' && canManage && (
-                          <button className="btn btn-danger btn-sm" onClick={async () => { await cancelBuild(b.id); load(false) }}>⏹ 取消</button>
+                          <button className="btn btn-danger btn-sm" onClick={async () => {
+                            try {
+                              await cancelBuild(b.id)
+                              load(false)
+                              showToast('⏹ 构建已取消', 'info')
+                            } catch (e) { showToast('❌ 取消失败：' + e.message, 'error') }
+                          }}>⏹ 取消</button>
                         )}
                         {b.status !== 'RUNNING' && canManage && (
                           <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(b)}>🗑 删除</button>
@@ -470,8 +547,9 @@ export default function BuildList() {
                   await deleteBuild(deleteTarget.id)
                   setDeleteTarget(null)
                   load(false)
+                  showToast('🗑️ 构建记录已删除', 'success')
                 } catch (e) {
-                  alert('删除失败：' + e.message)
+                  showToast('❌ 删除失败：' + e.message, 'error')
                 }
               }}>确认删除</button>
             </div>
@@ -504,6 +582,13 @@ export default function BuildList() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 通用操作结果通知 */}
+      {opToast && (
+        <MiniToast type={opToast.type} onClick={opToast.onClick || undefined}>
+          <span>{opToast.msg}</span>
+        </MiniToast>
       )}
     </>
   )

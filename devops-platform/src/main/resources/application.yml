@@ -66,6 +66,10 @@ devops:
       namespace: devops
       # kubectl 不可用时是否跳过该阶段（true=跳过并继续, false=标记构建失败）
       skip-if-unavailable: true
+      # 宿主机 IP（K8s Pod 内访问宿主机 MySQL 等服务的地址）
+      # auto = 自动检测（WSL: 网关IP, Docker Desktop: host.docker.internal）
+      # 也可以手动指定，如: 172.24.176.1 或 host.docker.internal
+      host-ip: auto
       # kubeconfig 文件路径（留空则自动搜索: KUBECONFIG环境变量 > ~/.kube/config > ~/.rancher/kube/config）
       # Windows Rancher 用户: 从 Rancher UI 下载 kubeconfig 放到 C:\Users\<用户名>\.kube\config 即可
       kubeconfig-path:

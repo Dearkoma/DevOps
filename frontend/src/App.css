@@ -40,6 +40,33 @@
   border-left-color: #6c63ff;
 }
 .sidebar-parent { cursor: pointer; }
+
+/* ── 分组折叠菜单 ── */
+.sidebar-group { margin-bottom: 2px; }
+.sidebar-group-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px; color: rgba(255,255,255,0.55);
+  font-size: 13px; font-weight: 500; text-transform: uppercase;
+  letter-spacing: 0.6px; cursor: pointer; transition: all 0.2s;
+  border-left: 3px solid transparent;
+  user-select: none;
+}
+.sidebar-group-header:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.04);
+}
+.sidebar-group-header.active {
+  color: #fff;
+  border-left-color: #6c63ff;
+  background: rgba(108,99,255,0.08);
+}
+.sidebar-group-header .icon { font-size: 16px; }
+.sidebar-group-label { flex: 1; }
+.sidebar-group-arrow {
+  font-size: 9px; transition: transform 0.2s; color: rgba(255,255,255,0.35);
+}
+.sidebar-group-arrow.open { transform: rotate(90deg); }
+
 .sidebar-submenu {
   padding: 2px 0 8px 0;
   margin-left: 16px;
@@ -67,6 +94,32 @@
 }
 .sidebar-subitem .icon { font-size: 14px; }
 
+/* 侧边栏 badge：菜单项旁的记录计数 */
+.sidebar-badge {
+  margin-left: auto;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  padding: 0 5px;
+  line-height: 1;
+}
+/* 灰色：记录总数 */
+.sidebar-badge-total {
+  background: rgba(255,255,255,0.15);
+  margin-left: 8px;
+}
+/* 红色：待办/运行中的数量 */
+.sidebar-badge-alert {
+  background: #ef4444;
+  margin-left: 4px;
+}
+
 /* ===== Toast Notification ===== */
 .toast {
   position: fixed; bottom: 24px; right: 24px; z-index: 9999;
@@ -75,6 +128,7 @@
   animation: toastIn 0.25s ease-out; max-width: 360px;
 }
 @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 .toast-info  { background: #6c63ff; }
 .toast-error { background: #ef4444; }
 

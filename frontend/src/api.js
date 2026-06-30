@@ -73,6 +73,15 @@ export const fetchProjects = () => request('/projects')
 export const createProject = (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) })
 export const updateProject = (id, data) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteProject = (id) => request(`/projects/${id}`, { method: 'DELETE' })
+export const fetchProjectFiles = (projectId, path = '', context = 'workspace') =>
+  request(`/projects/${projectId}/files?path=${encodeURIComponent(path)}&context=${context}`)
+export const fetchProjectFileContent = (projectId, path, context = 'workspace') =>
+  request(`/projects/${projectId}/files/content?path=${encodeURIComponent(path)}&context=${context}`)
+export const saveProjectFile = (projectId, path, content, context) =>
+  request(`/projects/${projectId}/files/content?path=${encodeURIComponent(path)}&context=${context}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content })
+  })
 
 // ==================== Pipelines ====================
 export const fetchPipelines = (projectId) => {
@@ -93,10 +102,10 @@ export const fetchBuilds = (projectId, status) => {
 }
 export const fetchBuild = (id) => request(`/builds/${id}`)
 export const fetchBuildLog = (id) => request(`/builds/${id}/log`)
-export const triggerBuild = (projectId, pipelineId, buildParams = null, branch = null) =>
+export const triggerBuild = (projectId, pipelineId, buildParams = null, branch = null, skipDocker = false, skipK8s = false) =>
   request(`/builds/trigger?projectId=${projectId}&pipelineId=${pipelineId}`, {
     method: 'POST',
-    body: JSON.stringify({ buildParams, branch })
+    body: JSON.stringify({ buildParams, branch, skipDocker, skipK8s })
   })
 export const cancelBuild = (id) => request(`/builds/${id}/cancel`, { method: 'DELETE' })
 export const deleteBuild = (id) => request(`/builds/${id}`, { method: 'DELETE' })
@@ -156,6 +165,11 @@ export const fetchK8sStatus = () => request('/instances/k8s-status')
 export const reconnectK8s = () => request('/instances/k8s-reconnect', { method: 'POST' })
 export const fetchK8sNamespaces = () => request('/instances/k8s-namespaces')
 export const deleteInstance = (id) => request(`/instances/${id}`, { method: 'DELETE' })
+export const stopInstance = (id) => request(`/instances/${id}/stop`, { method: 'POST' })
+export const startInstance = (id) => request(`/instances/${id}/start`, { method: 'POST' })
+export const fetchInstanceAccess = (id) => request(`/instances/${id}/access`)
+export const startPortForward = (id) => request(`/instances/${id}/port-forward`, { method: 'POST' })
+export const stopPortForward = (id) => request(`/instances/${id}/port-forward`, { method: 'DELETE' })
 export const fetchAvailability = () => request('/instances/availability')
 export const fetchStatsByType = () => request('/instances/stats-by-type')
 export const fetchK8sDeployments = (namespace = 'devops') => request(`/instances/k8s/deployments?namespace=${namespace}`)

@@ -1,0 +1,24 @@
+# DevOps 持续交付平台 — 项目长期记忆
+
+## 项目概况
+- **名称**：基于 Docker + Kubernetes 的 DevOps 持续交付平台（软件工程毕业设计选题八）
+- **技术栈**：Spring Boot 3.2 + JPA + MySQL/H2 + WebSocket（后端）；React + Vite（前端，构建产物部署到 `devops-platform/src/main/resources/static/`）
+- **端口**：8080；启动类 `com.devops.platform.DevOpsPlatformApplication`
+- **代码位置**：后端 `devops-platform/src/main/java/com/devops/platform/`；前端 `frontend/src/`
+- **比文档更丰富的功能**：JWT 认证、服务实例管理、K8s 部署、制品、模板、调度、审计、通知
+
+## ⚠️ 工作约定（用户明确要求，必须遵守）
+1. **"DevOps" = 本项目本身**。用户提到"DevOps"时即指这个毕业设计项目，不是泛指 DevOps 概念。
+2. **代码操作必须可恢复**。通过 git 保障：修改前确保工作区干净或先提交存档；提供修改方案时附带回退方式。
+3. **修改由用户执行**。AI 只提供修改方案/补丁/说明，不直接改代码文件；用户自己应用并验证（前端需 `npm run build` 后才生效）。
+
+## 可恢复机制
+- 项目已 git 初始化，提交历史可用。
+- 建议每次改代码前：`git stash` 或先 commit 当前状态；改完可 `git diff`/`git checkout -- <file>` 回退。
+- 前端改完必须 `cd frontend && npm run build`，产物自动落到后端 static 目录。
+
+## 关键路径速查
+- 配置：`devops-platform/src/main/resources/application.yml`（MySQL 密码在此改）
+- SQL 初始化：`devops-platform/sql/init.sql`
+- 前端构建：`cd frontend && npm run build`
+- 后端运行：IDEA 运行启动类，或 `java -jar target/devops-platform-1.0.0.jar`

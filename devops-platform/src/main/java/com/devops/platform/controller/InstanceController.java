@@ -69,6 +69,24 @@ public class InstanceController {
     }
 
     /**
+     * 停止服务实例（Docker: docker stop / K8s: scale → 0）
+     */
+    @PostMapping("/{id}/stop")
+    public ResponseEntity<Map<String, Object>> stop(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.stopInstance(id);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 启动服务实例（Docker: docker start / K8s: scale → 1）
+     */
+    @PostMapping("/{id}/start")
+    public ResponseEntity<Map<String, Object>> start(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.startInstance(id);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
      * K8s 连通性检测
      * 使用 Kubernetes Java Client 连接集群，检查是否可用，并拉取 Pod 列表
      */
@@ -174,6 +192,33 @@ public class InstanceController {
             @PathVariable String name,
             @RequestParam(defaultValue = "devops") String namespace) {
         Map<String, Object> result = k8sClientService.deleteDeployment(name, namespace);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取实例的访问信息（端口映射、访问 URL）
+     */
+    @GetMapping("/{id}/access")
+    public ResponseEntity<Map<String, Object>> getAccessInfo(@PathVariable Long id) {
+        Map<String, Object> info = monitorService.getAccessInfo(id);
+        return ResponseEntity.ok(info);
+    }
+
+    /**
+     * 启动 K8s 端口转发（对 ClusterIP 服务自动 kubectl port-forward）
+     */
+    @PostMapping("/{id}/port-forward")
+    public ResponseEntity<Map<String, Object>> startPortForward(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.startPortForward(id);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 停止 K8s 端口转发
+     */
+    @DeleteMapping("/{id}/port-forward")
+    public ResponseEntity<Map<String, Object>> stopPortForward(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.stopPortForward(id);
         return ResponseEntity.ok(result);
     }
 

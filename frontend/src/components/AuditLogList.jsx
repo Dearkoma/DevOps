@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { fetchAuditLogs, fetchAuditByUser, fetchAuditByAction } from '../api'
 
 const RESOURCE_ICONS = { PROJECT: '📁', PIPELINE: '🔧', BUILD: '📋', ENVIRONMENT: '🌐', USER: '👤', DEPLOYMENT: '🚀' }
 const ACTION_LABELS = { CREATE: '创建', UPDATE: '更新', DELETE: '删除', TRIGGER: '触发', CANCEL: '取消', APPROVE: '审批通过', REJECT: '审批拒绝', LOGIN: '登录', LOGOUT: '登出' }
 
 export default function AuditLogList() {
+  const { isAdmin } = useAuth()
+  const navigate = useNavigate()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
@@ -12,7 +16,15 @@ export default function AuditLogList() {
   const [filterType, setFilterType] = useState('')
   const [filterValue, setFilterValue] = useState('')
 
+  // 非 ADMIN 禁止访问
+  useEffect(() => {
+    if (!isAdmin) {
+      navigate('/', { replace: true })
+    }
+  }, [isAdmin, navigate])
+
   const load = useCallback(async () => {
+    if (!isAdmin) return
     setLoading(true)
     try {
       let result

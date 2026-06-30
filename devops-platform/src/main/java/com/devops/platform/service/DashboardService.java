@@ -22,6 +22,8 @@ public class DashboardService {
     private final DeploymentHistoryRepository deploymentHistoryRepository;
     private final ServiceInstanceRepository instanceRepository;
     private final NotificationRepository notificationRepository;
+    private final UserRepository userRepository;
+    private final AuditLogRepository auditLogRepository;
 
     public Map<String, Object> getDashboardStats() {
         Map<String, Object> stats = new HashMap<>();
@@ -40,6 +42,8 @@ public class DashboardService {
         stats.put("totalDeployments", deploymentHistoryRepository.count());
         stats.put("runningInstances", instanceRepository.findByStatus("RUNNING").size());
         stats.put("unreadNotifications", notificationRepository.countByIsReadFalse());
+        stats.put("totalUsers", userRepository.count());
+        stats.put("totalAuditLogs", auditLogRepository.count());
 
         return stats;
     }

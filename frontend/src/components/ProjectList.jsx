@@ -14,7 +14,7 @@ const DEFAULT_FORM = {
 
 export default function ProjectList() {
   const navigate = useNavigate()
-  const { canManage } = useAuth()
+  const { canManage, canTrigger } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -255,14 +255,26 @@ export default function ProjectList() {
               <div style={{ marginTop: 12, borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontWeight: 600, fontSize: 14 }}>📁 工作目录</span>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={handleCheckWorkspace}
-                    disabled={wsChecking}
-                    style={{ fontSize: 12 }}
-                  >
-                    {wsChecking ? '⏳ 检查中...' : '🔍 检查工作目录'}
-                  </button>
+                  <div className="btn-group" style={{ gap: 6 }}>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={handleCheckWorkspace}
+                      disabled={wsChecking}
+                      style={{ fontSize: 12 }}
+                    >
+                      {wsChecking ? '⏳ 检查中...' : '🔍 检查工作目录'}
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        setDetailProject(null)
+                        navigate(`/projects/${detailProject.id}/files`)
+                      }}
+                      style={{ fontSize: 12 }}
+                    >
+                      📂 查看文件
+                    </button>
+                  </div>
                 </div>
 
                 {wsCheckResult && (
@@ -337,9 +349,12 @@ export default function ProjectList() {
                           <td>{pl.name}</td>
                           <td>{pl.trigger || 'MANUAL'}</td>
                           <td>
-                            <button className="btn btn-success btn-sm" onClick={() => handleTriggerBuild(pl)}>▶ 触发构建</button>
-                            {' '}
-                            <button className="btn btn-outline btn-sm" onClick={() => { setDetailProject(null); navigate(`/projects/${detailProject.id}/pipelines`) }}>🔧</button>
+                            {canTrigger && (
+                              <button className="btn btn-success btn-sm" onClick={() => handleTriggerBuild(pl)}>▶ 触发构建</button>
+                            )}
+                            {canManage && (
+                              <button className="btn btn-outline btn-sm" onClick={() => { setDetailProject(null); navigate(`/projects/${detailProject.id}/pipelines`) }}>🔧</button>
+                            )}
                           </td>
                         </tr>
                       ))}

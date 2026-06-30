@@ -4,7 +4,9 @@ import { useAuth } from '../context/AuthContext'
 import {
   fetchInstances, fetchInstanceStats, fetchStatsByType,
   fetchAvailability, fetchK8sStatus, reconnectK8s,
-  deleteInstance, fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment
+  deleteInstance, stopInstance, startInstance, fetchInstanceAccess,
+  startPortForward, stopPortForward,
+  fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment
 } from '../api'
 
 function useActivePage() {
@@ -26,6 +28,16 @@ export default function InstanceList() {
   const [k8sStatus, setK8sStatus] = useState(null)
   const [reconnecting, setReconnecting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [toast, setToast] = useState(null) // { text, type: 'info'|'error' }
+  const [actionLoading, setActionLoading] = useState(null) // instance id being acted on
+  const [accessData, setAccessData] = useState({})  // instanceId -> access info
+  const [accessLoading, setAccessLoading] = useState({}) // instanceId -> boolean
+  const [expandedAccess, setExpandedAccess] = useState({}) // instanceId -> boolean
+
+  const showToast = (text, type = 'info') => {
+    setToast({ text, type })
+    setTimeout(() => setToast(null), type === 'error' ? 5000 : 3000)
+  }
 
   // K8s Deployments
   const [deployments, setDeployments] = useState([])
@@ -77,6 +89,92 @@ export default function InstanceList() {
     catch (e) { alert('删除失败：' + e.message) }
   }
 
+  const handleToggleAccess = async (inst) => {
+    // 如果已展开则收起
+    if (expandedAccess[inst.id]) {
+      setExpandedAccess(prev => ({ ...prev, [inst.id]: false }))
+      return
+    }
+    // 展开
+    setExpandedAccess(prev => ({ ...prev, [inst.id]: true }))
+    // 如果没有缓存数据则加载
+    if (!accessData[inst.id]) {
+      setAccessLoading(prev => ({ ...prev, [inst.id]: true }))
+      try {
+        const data = await fetchInstanceAccess(inst.id)
+        setAccessData(prev => ({ ...prev, [inst.id]: data }))
+      } catch (e) {
+        setAccessData(prev => ({ ...prev, [inst.id]: { success: false, message: '获取失败: ' + e.message } }))
+      } finally {
+        setAccessLoading(prev => ({ ...prev, [inst.id]: false }))
+      }
+    }
+  }
+
+  const handleStop = async (inst) => {
+    setActionLoading(inst.id)
+    try {
+      const res = await stopInstance(inst.id)
+      if (res?.success) {
+        showToast(`✅ ${inst.instanceName} 已停止`)
+        loadAll()
+      } else {
+        showToast(`❌ ${res?.message || '停止失败'}`, 'error')
+      }
+    } catch (e) {
+      showToast('❌ 停止失败: ' + e.message, 'error')
+    } finally { setActionLoading(null) }
+  }
+
+  const handleStart = async (inst) => {
+    setActionLoading(inst.id)
+    try {
+      const res = await startInstance(inst.id)
+      if (res?.success) {
+        showToast(`✅ ${inst.instanceName} 已启动`)
+        loadAll()
+      } else {
+        showToast(`❌ ${res?.message || '启动失败'}`, 'error')
+      }
+    } catch (e) {
+      showToast('❌ 启动失败: ' + e.message, 'error')
+    } finally { setActionLoading(null) }
+  }
+
+  const handleStartForward = async (inst) => {
+    setActionLoading(inst.id)
+    try {
+      const res = await startPortForward(inst.id)
+      if (res?.success) {
+        showToast(`🔗 端口转发已启动 → localhost:${res.localPort}`)
+        // 刷新 access 缓存以显示真实 URL
+        const accessRes = await fetchInstanceAccess(inst.id)
+        setAccessData(prev => ({ ...prev, [inst.id]: accessRes }))
+      } else {
+        showToast(`❌ ${res?.message || '转发失败'}`, 'error')
+      }
+    } catch (e) {
+      showToast('❌ 转发失败: ' + e.message, 'error')
+    } finally { setActionLoading(null) }
+  }
+
+  const handleStopForward = async (inst) => {
+    setActionLoading(inst.id)
+    try {
+      const res = await stopPortForward(inst.id)
+      if (res?.success) {
+        showToast(`⏹ ${res.message}`)
+        // 刷新 access 缓存
+        const accessRes = await fetchInstanceAccess(inst.id)
+        setAccessData(prev => ({ ...prev, [inst.id]: accessRes }))
+      } else {
+        showToast(`❌ ${res?.message || '停止失败'}`, 'error')
+      }
+    } catch (e) {
+      showToast('❌ 停止转发失败: ' + e.message, 'error')
+    } finally { setActionLoading(null) }
+  }
+
   const viewDepDetail = async (dep) => {
     setDepDetail({ name: dep.name, data: null }); setDepDetailLoading(true)
     try { setDepDetail({ name: dep.name, data: await getK8sDeployment(dep.name, depNamespace) }) }
@@ -91,7 +189,7 @@ export default function InstanceList() {
 
   if (loading && !dockerStatus && !k8sStatus) return <div className="empty-state"><div className="spinner" /></div>
 
-  const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, canManage, loadAll }
+  const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, canManage, loadAll, handleStop, handleStart, actionLoading, accessData, accessLoading, expandedAccess, handleToggleAccess, handleStartForward, handleStopForward }
 
   return (
     <>
@@ -114,6 +212,13 @@ export default function InstanceList() {
 
       {/* 删除 K8s Deployment 弹窗 */}
       {deleteDepTarget && <DeleteDeploymentModal target={deleteDepTarget} namespace={depNamespace} onClose={() => setDeleteDepTarget(null)} onConfirm={handleDeleteDeployment} />}
+
+      {/* Toast */}
+      {toast && (
+        <div className={`toast ${toast.type === 'error' ? 'toast-error' : 'toast-info'}`} style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999 }}>
+          {toast.text}
+        </div>
+      )}
     </>
   )
 }
@@ -167,7 +272,7 @@ function DeleteDeploymentModal({ target, namespace, onClose, onConfirm }) {
 }
 
 // ==================== 页面视图 ====================
-function AllInstancesView({ instances, stats, setDeleteTarget, loadAll }) {
+function AllInstancesView({ instances, stats, setDeleteTarget, loadAll, handleStop, handleStart, actionLoading, accessData, accessLoading, expandedAccess, handleToggleAccess, handleStartForward, handleStopForward }) {
   return (
     <>
       <div className="page-header">
@@ -175,12 +280,12 @@ function AllInstancesView({ instances, stats, setDeleteTarget, loadAll }) {
         <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 刷新</button>
       </div>
       {stats && <StatsRow stats={stats} />}
-      <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} />
+      <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} handleStop={handleStop} handleStart={handleStart} actionLoading={actionLoading} accessData={accessData} accessLoading={accessLoading} expandedAccess={expandedAccess} handleToggleAccess={handleToggleAccess} handleStartForward={handleStartForward} handleStopForward={handleStopForward} />
     </>
   )
 }
 
-function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, loadAll }) {
+function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, loadAll, handleStop, handleStart, actionLoading, accessData, accessLoading, expandedAccess, handleToggleAccess, handleStartForward, handleStopForward }) {
   const dStats = statsByType?.docker
   return (
     <>
@@ -198,7 +303,7 @@ function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarge
         </div>
       )}
       {dStats && <TypeStats summary={dStats} label="Docker" />}
-      <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} />
+      <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} handleStop={handleStop} handleStart={handleStart} actionLoading={actionLoading} accessData={accessData} accessLoading={accessLoading} expandedAccess={expandedAccess} handleToggleAccess={handleToggleAccess} handleStartForward={handleStartForward} handleStopForward={handleStopForward} />
     </>
   )
 }
@@ -208,7 +313,9 @@ function K8sView({
   deployments, depLoading, depNamespace, setDepNamespace, loadDeployments,
   depDetail, setDepDetail, depDetailLoading, viewDepDetail,
   deleteDepTarget, setDeleteDepTarget, handleDeleteDeployment,
-  setDeleteTarget, loadAll, canManage,
+  setDeleteTarget, loadAll, canManage, handleStop, handleStart, actionLoading,
+  accessData, accessLoading, expandedAccess, handleToggleAccess,
+  handleStartForward, handleStopForward
 }) {
   const kStats = statsByType?.k8s
   return (
@@ -224,7 +331,7 @@ function K8sView({
         extra={k8sStatus?.connected && k8sStatus?.pods?.length > 0 && <PodList pods={k8sStatus.pods} count={k8sStatus.podCount} />}
       />
       {kStats && <TypeStats summary={kStats} label="K8s" />}
-      <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} />
+      <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} handleStop={handleStop} handleStart={handleStart} actionLoading={actionLoading} accessData={accessData} accessLoading={accessLoading} expandedAccess={expandedAccess} handleToggleAccess={handleToggleAccess} handleStartForward={handleStartForward} handleStopForward={handleStopForward} />
       {k8sStatus?.connected && <DeploymentPanel
         deployments={deployments} depLoading={depLoading}
         depNamespace={depNamespace} setDepNamespace={setDepNamespace} loadDeployments={loadDeployments}
@@ -291,7 +398,7 @@ function PodList({ pods, count }) {
   )
 }
 
-function InstanceTable({ instances, showType, setDeleteTarget }) {
+function InstanceTable({ instances, showType, setDeleteTarget, handleStop, handleStart, actionLoading, accessData, accessLoading, expandedAccess, handleToggleAccess, handleStartForward, handleStopForward }) {
   if (instances.length === 0) return (
     <div className="card"><div className="empty-state"><div className="icon">📦</div><p>暂无服务实例</p><p style={{ fontSize: 12 }}>构建并部署后，服务实例将自动注册</p></div></div>
   )
@@ -301,6 +408,7 @@ function InstanceTable({ instances, showType, setDeleteTarget }) {
         <table>
           <thead>
             <tr>
+              <th style={{ width: 36 }}></th>
               <th>实例名称</th><th>项目</th>
               {showType && <th>部署类型</th>}
               <th>状态</th><th>健康</th><th>镜像</th><th>CPU</th><th>内存</th><th>最后心跳</th><th>操作</th>
@@ -308,23 +416,272 @@ function InstanceTable({ instances, showType, setDeleteTarget }) {
           </thead>
           <tbody>
             {instances.map(inst => (
-              <tr key={inst.id}>
-                <td style={{ fontWeight: 600 }}>{inst.instanceName}</td>
-                <td style={{ color: '#6b7280' }}>{inst.projectName || `#${inst.projectId}`}</td>
-                {showType && (
-                  <td><span className={`badge ${inst.deployType === 'K8S' ? 'badge-admin' : 'badge-developer'}`} style={{ fontSize: 11 }}>{inst.deployType === 'K8S' ? '☸️ K8s' : '🐳 Docker'}</span></td>
+              <React.Fragment key={inst.id}>
+                <tr style={{ cursor: 'pointer' }} onClick={() => inst.status === 'RUNNING' && handleToggleAccess(inst)}>
+                  <td style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af' }}>
+                    {inst.status === 'RUNNING' ? (
+                      expandedAccess[inst.id] ? '▼' : '▶'
+                    ) : ''}
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{inst.instanceName}</td>
+                  <td style={{ color: '#6b7280' }}>{inst.projectName || `#${inst.projectId}`}</td>
+                  {showType && (
+                    <td><span className={`badge ${inst.deployType === 'K8S' ? 'badge-admin' : 'badge-developer'}`} style={{ fontSize: 11 }}>{inst.deployType === 'K8S' ? '☸️ K8s' : '🐳 Docker'}</span></td>
+                  )}
+                  <td><BadgeStatus val={inst.status} /></td>
+                  <td><BadgeHealth val={inst.healthStatus} /></td>
+                  <td style={{ fontSize: 12 }}>{inst.imageName}:{inst.imageTag || 'latest'}</td>
+                  <td>{inst.cpuUsage ? inst.cpuUsage.toFixed(1) + '%' : '-'}</td>
+                  <td>{inst.memoryUsage ? inst.memoryUsage.toFixed(0) + 'MB' : '-'}</td>
+                  <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <div className="btn-group">
+                      {inst.status === 'RUNNING' && (
+                        <button className="btn btn-warning btn-sm" onClick={() => handleStop(inst)} disabled={actionLoading === inst.id}>
+                          {actionLoading === inst.id ? '⏳' : '⏹'} 停止
+                        </button>
+                      )}
+                      {inst.status === 'STOPPED' && (
+                        <button className="btn btn-success btn-sm" onClick={() => handleStart(inst)} disabled={actionLoading === inst.id}>
+                          {actionLoading === inst.id ? '⏳' : '▶'} 启动
+                        </button>
+                      )}
+                      {inst.status === 'UNKNOWN' && (
+                        <button className="btn btn-outline btn-sm" onClick={() => handleStart(inst)} disabled={actionLoading === inst.id}>
+                          {actionLoading === inst.id ? '⏳' : '▶'} 尝试启动
+                        </button>
+                      )}
+                      <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(inst)}>🗑 删除</button>
+                    </div>
+                  </td>
+                </tr>
+                {/* 访问信息展开行 */}
+                {expandedAccess[inst.id] && (
+                  <tr>
+                    <td colSpan={showType ? 11 : 10} style={{ background: '#f0f9ff', padding: 0, borderBottom: '2px solid #bae6fd' }}>
+                      <AccessInfoPanel inst={inst} data={accessData[inst.id]} loading={accessLoading[inst.id]} handleStartForward={handleStartForward} handleStopForward={handleStopForward} actionLoading={actionLoading} />
+                    </td>
+                  </tr>
                 )}
-                <td><BadgeStatus val={inst.status} /></td>
-                <td><BadgeHealth val={inst.healthStatus} /></td>
-                <td style={{ fontSize: 12 }}>{inst.imageName}:{inst.imageTag || 'latest'}</td>
-                <td>{inst.cpuUsage ? inst.cpuUsage.toFixed(1) + '%' : '-'}</td>
-                <td>{inst.memoryUsage ? inst.memoryUsage.toFixed(0) + 'MB' : '-'}</td>
-                <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
-                <td><button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(inst)}>🗑 删除</button></td>
-              </tr>
+              </React.Fragment>
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+// ==================== 访问信息面板 ====================
+function AccessInfoPanel({ inst, data, loading, handleStartForward, handleStopForward, actionLoading }) {
+  if (loading) {
+    return (
+      <div style={{ padding: '16px 20px', textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+        <div className="spinner" style={{ margin: '0 auto 8px' }} />
+        正在获取端口映射...
+      </div>
+    )
+  }
+  if (!data) return null
+  if (!data.success) {
+    return (
+      <div style={{ padding: '16px 20px', color: '#ef4444', fontSize: 13 }}>
+        {data.message || '获取访问信息失败'}
+      </div>
+    )
+  }
+
+  const { host, port, imageName, imageTag, ports, internalUrls, externalUrls, deployType, containerName,
+    portForwardActive, canPortForward, portForwardUrl } = data
+
+  const isExternalCmd = (url) => url.startsWith('kubectl ') || url.startsWith('docker ')
+
+  return (
+    <div style={{ padding: '14px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#0369a1' }}>
+          🔗 {inst.instanceName} 访问信息
+        </span>
+        <span className={`badge ${deployType === 'K8S' ? 'badge-admin' : 'badge-developer'}`} style={{ fontSize: 10 }}>
+          {deployType === 'K8S' ? '☸️ K8s' : '🐳 Docker'}
+        </span>
+      </div>
+
+      {/* 基本信息行 */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 12, fontSize: 12, color: '#475569' }}>
+        <span>镜像: <code style={{ background: '#e0f2fe', padding: '1px 6px', borderRadius: 3 }}>{imageName}:{imageTag}</code></span>
+        {containerName && <span>容器: <code style={{ background: '#e0f2fe', padding: '1px 6px', borderRadius: 3 }}>{containerName}</code></span>}
+        {host && <span>主机: <code style={{ background: '#e0f2fe', padding: '1px 6px', borderRadius: 3 }}>{host}</code></span>}
+        {port && <span>端口: <code style={{ background: '#e0f2fe', padding: '1px 6px', borderRadius: 3 }}>{port}</code></span>}
+      </div>
+
+      {/* 端口映射表格 */}
+      {ports && ports.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>📋 端口映射</div>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', background: '#fff', borderRadius: 6, overflow: 'hidden', border: '1px solid #e0f2fe' }}>
+            <thead>
+              <tr style={{ background: '#f0f9ff' }}>
+                {deployType === 'DOCKER' ? (
+                  <>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#0369a1' }}>容器端口</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#0369a1' }}>映射到宿主机</th>
+                  </>
+                ) : (
+                  <>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#0369a1' }}>Service</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#0369a1' }}>类型</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#0369a1' }}>端口</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#0369a1' }}>ClusterIP</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {ports.map((p, i) => (
+                <tr key={i} style={{ borderTop: '1px solid #e0f2fe' }}>
+                  {deployType === 'DOCKER' ? (
+                    <>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{p.containerPort}</td>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#059669', fontWeight: 600 }}>{p.hostBinding}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{p.serviceName || '-'}</td>
+                      <td style={{ padding: '6px 10px' }}><span className="badge" style={{ fontSize: 10, background: '#dbeafe', color: '#1e40af' }}>{p.serviceType}</span></td>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{p.port}</td>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontSize: 11, color: '#6b7280' }}>{p.clusterIP || '-'}</td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* K8s ClusterIP: 一键端口转发 */}
+      {canPortForward && (
+        <div style={{ marginBottom: 12, padding: '10px 14px', background: portForwardActive ? '#ecfdf5' : '#fef9e7', borderRadius: 6, border: '1px solid ' + (portForwardActive ? '#a7f3d0' : '#fde68a') }}>
+          {portForwardActive ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 14 }}>🔗</span>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: '#065f46' }}>
+                端口转发已激活：
+                <a href={portForwardUrl} target="_blank" rel="noreferrer" style={{ color: '#059669', marginLeft: 6 }}>
+                  {portForwardUrl}
+                </a>
+              </span>
+              <button
+                className="btn btn-warning btn-sm"
+                style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+                onClick={(e) => { e.stopPropagation(); handleStopForward(inst) }}
+                disabled={actionLoading === inst.id}
+              >{actionLoading === inst.id ? '⏳' : '⏹'} 停止转发</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 14 }}>🔌</span>
+              <span style={{ flex: 1, fontSize: 13, color: '#92400e' }}>
+                该服务为 ClusterIP 类型，集群外无法直接访问。点击按钮自动执行 <code style={{ background: '#fef3c7', padding: '1px 4px', borderRadius: 3 }}>kubectl port-forward</code>
+              </span>
+              <button
+                className="btn btn-success btn-sm"
+                style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+                onClick={(e) => { e.stopPropagation(); handleStartForward(inst) }}
+                disabled={actionLoading === inst.id}
+              >{actionLoading === inst.id ? '⏳' : '⚡'} 一键转发</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 两栏布局：集群内部 ｜ 外部访问 */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        {/* 集群内部访问 */}
+        <UrlSection
+          title="🏠 集群内部访问"
+          subtitle={deployType === 'DOCKER' ? 'Docker 网络内其他容器可通过此地址访问' : 'K8s 集群内 Pod/Service 可通过此地址访问'}
+          urls={internalUrls}
+          color="#0891b2"
+          bgColor="#ecfeff"
+          borderColor="#a5f3fc"
+          isExternalCmd={isExternalCmd}
+        />
+        {/* 外部访问 */}
+        <UrlSection
+          title="🌍 外部访问（浏览器可直接打开）"
+          subtitle={deployType === 'DOCKER' ? '通过宿主机端口映射访问' : '通过 NodePort / LoadBalancer / Port-forward 访问'}
+          urls={externalUrls}
+          color="#059669"
+          bgColor="#ecfdf5"
+          borderColor="#a7f3d0"
+          isExternalCmd={isExternalCmd}
+        />
+      </div>
+
+      {(!ports || ports.length === 0) && (
+        <div style={{ fontSize: 12, color: '#f59e0b', padding: '8px 0' }}>
+          ⚠️ 未检测到端口映射。请确认容器启动时配置了端口映射（docker run -p）或 K8s Service 已创建。
+        </div>
+      )}
+    </div>
+  )
+}
+
+function UrlSection({ title, subtitle, urls, color, bgColor, borderColor, isExternalCmd }) {
+  if (!urls || urls.length === 0) {
+    return (
+      <div style={{ flex: '1 1 280px', minWidth: 250, padding: '10px 12px', background: '#f9fafb', borderRadius: 6, border: '1px dashed #d1d5db', fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
+        {title} — 暂无
+      </div>
+    )
+  }
+  return (
+    <div style={{ flex: '1 1 280px', minWidth: 250 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>{subtitle}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {urls.map((url, i) => {
+          const isCmd = isExternalCmd(url)
+          const cleanUrl = isCmd ? url : url.replace(/\s*\(.*\)$/, '')
+          return (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '8px 12px', background: bgColor, borderRadius: 6,
+              border: '1px solid ' + borderColor, fontSize: 12
+            }}>
+              <span style={{ fontSize: 14 }}>{isCmd ? '💻' : '🔗'}</span>
+              <code style={{
+                flex: 1, fontFamily: isCmd ? 'Consolas, monospace' : 'monospace',
+                fontSize: isCmd ? 11 : 12,
+                color: isCmd ? '#7c3aed' : color,
+                wordBreak: 'break-all', lineHeight: 1.5
+              }}>
+                {url}
+              </code>
+              {!isCmd && (
+                <button
+                  className="btn btn-outline btn-sm"
+                  style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(cleanUrl).catch(() => {})
+                    window.open(cleanUrl, '_blank')
+                  }}
+                >📋 打开</button>
+              )}
+              {isCmd && (
+                <button
+                  className="btn btn-outline btn-sm"
+                  style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(cleanUrl).catch(() => {})
+                  }}
+                >📋 复制</button>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

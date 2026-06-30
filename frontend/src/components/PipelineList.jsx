@@ -35,6 +35,11 @@ export default function PipelineList() {
   const [search, setSearch] = useState('')
   const [toast, setToast] = useState(null) // { text, type: 'info'|'error' }
 
+  // 触发构建选项弹窗
+  const [showTriggerModal, setShowTriggerModal] = useState(false)
+  const [triggerPipeline, setTriggerPipeline] = useState(null)
+  const [triggerOpts, setTriggerOpts] = useState({ skipDocker: false, skipK8s: false })
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -79,6 +84,10 @@ export default function PipelineList() {
       alert('请选择所属项目（请先在项目管理中创建项目）')
       return
     }
+    if (form.cronEnabled && !form.cronExpression?.trim()) {
+      alert('已勾选"启用定时构建"，但 Cron 表达式为空。请填写表达式或取消勾选"启用"')
+      return
+    }
     try {
       // 验证 JSON 格式
       JSON.parse(form.definition)
@@ -109,10 +118,25 @@ export default function PipelineList() {
     try { await deletePipeline(p.id); load() } catch (e) { alert('删除失败: ' + e.message) }
   }
 
-  const handleTrigger = async (p, pid) => {
+  const handleTrigger = (p) => {
+    setTriggerPipeline(p)
+    setTriggerOpts({ skipDocker: false, skipK8s: false })
+    setShowTriggerModal(true)
+  }
+
+  const confirmTrigger = async () => {
+    if (!triggerPipeline) return
+    setShowTriggerModal(false)
     setToast({ text: '构建触发中...', type: 'info' })
     try {
-      await triggerBuild(pid, p.id)
+      await triggerBuild(
+        triggerPipeline.projectId,
+        triggerPipeline.id,
+        null,  // buildParams
+        null,  // branch
+        triggerOpts.skipDocker,
+        triggerOpts.skipK8s
+      )
       setToast({ text: '构建已触发！可在"构建记录"中查看进度', type: 'info' })
       setTimeout(() => setToast(null), 3000)
     } catch (e) {
@@ -194,7 +218,7 @@ export default function PipelineList() {
                       <td style={{ color: '#9ca3af', fontSize: 12 }}>{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '-'}</td>
                       <td>
                         <div className="btn-group">
-                          {canTrigger && <button className="btn btn-success btn-sm" onClick={() => handleTrigger(p, p.projectId)}>▶ 执行</button>}
+                          {canTrigger && <button className="btn btn-success btn-sm" onClick={() => handleTrigger(p)}>▶ 执行</button>}
                           {canManage && <button className="btn btn-outline btn-sm" onClick={() => openEdit(p)}>✏️</button>}
                           {canManage && <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p)}>🗑</button>}
                         </div>
@@ -252,7 +276,7 @@ export default function PipelineList() {
                     type="checkbox"
                     checked={form.cronEnabled}
                     onChange={e => setForm({...form, cronEnabled: e.target.checked})}
-                    disabled={!form.cronExpression}
+                    title={form.cronExpression ? '勾选后保存即启用定时构建' : '请先填写 Cron 表达式再启用'}
                   />
                   启用
                 </label>
@@ -274,6 +298,49 @@ export default function PipelineList() {
           </div>
         </div>
       )}
+      {/* 构建选项弹窗 */}
+      {showTriggerModal && triggerPipeline && (
+        <div className="modal-overlay" onClick={() => setShowTriggerModal(false)}>
+          <div className="modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+            <h3>🚀 执行构建</h3>
+            <p style={{ fontSize: 14, color: '#374151', marginBottom: 4 }}>
+              流水线: <strong>{triggerPipeline.name}</strong>
+            </p>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>
+              选择要跳过的阶段，只运行需要的部分
+            </p>
+
+            <div style={{ background: '#f9fafb', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0', fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={triggerOpts.skipDocker}
+                  onChange={e => setTriggerOpts({ ...triggerOpts, skipDocker: e.target.checked })}
+                />
+                <span>🐳 跳过 Docker 构建</span>
+                <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>不构建 & 推送镜像</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0', fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={triggerOpts.skipK8s}
+                  onChange={e => setTriggerOpts({ ...triggerOpts, skipK8s: e.target.checked })}
+                />
+                <span>☸️ 跳过 K8s 部署</span>
+                <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>不部署到集群</span>
+              </label>
+            </div>
+
+            <div className="btn-group" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn btn-outline" onClick={() => setShowTriggerModal(false)}>取消</button>
+              <button className="btn btn-success" onClick={confirmTrigger}>
+                ▶ 立即执行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast notification */}
       {toast && (
         <div className={`toast toast-${toast.type}`}>

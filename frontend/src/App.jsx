@@ -17,6 +17,7 @@ import SchedulerList from './components/SchedulerList'
 import ArtifactList from './components/ArtifactList'
 import NotificationCenter from './components/NotificationCenter'
 import UserManagement from './components/UserManagement'
+import ProjectFiles from './components/ProjectFiles'
 import './App.css'
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="projects" element={<ProjectList />} />
             <Route path="projects/:projectId/pipelines" element={<PipelineList />} />
+            <Route path="projects/:projectId/files" element={<ProjectFiles />} />
             <Route path="pipelines" element={<PipelineList />} />
             <Route path="builds" element={<BuildList />} />
             <Route path="deployments" element={<DeploymentList />} />

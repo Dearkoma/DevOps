@@ -572,6 +572,35 @@ public class K8sClientService {
     }
 
     /**
+     * 缩放 Deployment（设置副本数）
+     * @param replicas 目标副本数（0 = 停止）
+     */
+    public Map<String, Object> scaleDeployment(String name, String namespace, int replicas) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String targetNs = (namespace != null && !namespace.isBlank()) ? namespace : defaultNamespace;
+        try {
+            ProcessBuilder pb = new ProcessBuilder("kubectl", "scale", "deployment", name,
+                    "-n", targetNs, "--replicas=" + replicas);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes());
+            int code = p.waitFor();
+            result.put("success", code == 0);
+            result.put("output", output.trim());
+            if (code == 0) {
+                log.info("Deployment {} 缩放至 {} 副本成功", name, replicas);
+            } else {
+                log.warn("Deployment {} 缩放失败: {}", name, output);
+            }
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("output", e.getMessage());
+            log.warn("缩放 Deployment 异常: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    /**
      * 删除 Deployment
      */
     public Map<String, Object> deleteDeployment(String name, String namespace) {
