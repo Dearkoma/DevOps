@@ -25,9 +25,9 @@
 - **⚠️ 开发模式下禁止跑 `npm run build`**：vite.config.js 的 outDir 指向 `../devops-platform/src/main/resources/static/`，一跑 build 就会重建 static/ 目录，导致 8080 又能直接访问前端页面，绕过登录限制。验证编译用 `npx vite build --outDir /tmp/check` 或直接看 HMR 是否报错。
 
 ## 可恢复机制
-- 当前最新提交 `1752811`（2026-07-01 01:55）。
+- 当前最新提交 `45eb418`（2026-07-01 02:35）。
 - 改代码前：`git stash` 或先 commit；改完可 `git diff`/`git checkout -- <file>` 回退。
-- 整体回退：`git reset --hard 1752811`。
+- 整体回退：`git reset --hard 45eb418`。
 
 ## 关键路径速查
 - 配置：`devops-platform/src/main/resources/application.yml`（MySQL 密码在此改）
@@ -44,3 +44,16 @@
   ```
   /c/Users/Dearkoma/.workbuddy/binaries/python/envs/default/Scripts/python -c "..." 
   ```
+
+## O 项目（proj-1782825767454）K8s 部署架构
+- **前后端分离部署**（2026-07-01 改造）：Pod 两个容器
+  - backend 容器 `proj-1782825767454`（端口 8080）：Spring Boot，`proj-1782825767454:latest`
+  - frontend 容器 `proj-1782825767454-frontend`（端口 80）：nginx 提供 React 静态文件，`proj-1782825767454-frontend:latest`
+  - nginx 代理 `/api/` 和 `/ws` 到 `localhost:8080`（同 Pod 后端容器）
+  - Service port=8080 → targetPort=80（流量先到 nginx）
+- **workspace 文件**（gitignore 不跟踪）：
+  - `Dockerfile.frontend` + `nginx.conf` 在 `data/workspace/proj-1782825767454/devops-platform/`
+  - `deployment.yaml` 同目录，已改为两容器
+- **构建**：`DOCKER_BUILDKIT=0 docker build -t proj-xxx-frontend:latest -f devops-platform/Dockerfile.frontend .`（build context 是 workspace 根目录）
+- **日志分离**：`kubectl logs <pod> -c <container>` 分别获取前后台日志
+  - `inferContainerRole` 按 name/image 推断角色：含 front/nginx/web/ui/static → frontend

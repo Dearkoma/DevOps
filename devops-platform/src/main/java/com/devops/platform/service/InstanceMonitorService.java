@@ -678,14 +678,19 @@ public class InstanceMonitorService {
             String searchTerm = inst.getInstanceName();
             if (searchTerm != null) searchTerm = searchTerm.replaceAll("-(k8s|docker)$", "");
 
+            System.out.println("[CONTAINERS] 实例=" + inst.getInstanceName() + " ns=" + ns + " searchTerm=" + searchTerm);
+
             String podName = null;
             if (searchTerm != null && !searchTerm.isBlank()) {
                 podName = resolveK8sPodNameAllPhases(ns, searchTerm);
             }
 
+            System.out.println("[CONTAINERS] 解析到 podName=" + podName);
+
             if (podName != null && !podName.isBlank()) {
                 ProcessResult r = kubectl("get", "pod", podName, "-n", ns, "-o",
                         "jsonpath={range .spec.containers[*]}{.name}|{.image}{\"\\n\"}{end}");
+                System.out.println("[CONTAINERS] kubectl get pod success=" + r.success + " output=" + r.output);
                 if (r.success && r.output != null) {
                     for (String line : r.output.split("\n")) {
                         line = line.trim();
@@ -701,6 +706,15 @@ public class InstanceMonitorService {
                     }
                 }
             }
+            if (containers.isEmpty()) {
+                // 兜底：找不到容器时返回默认 backend，避免前端无按钮
+                Map<String, String> c = new LinkedHashMap<>();
+                c.put("name", searchTerm != null ? searchTerm : inst.getInstanceName());
+                c.put("image", "");
+                c.put("role", "backend");
+                containers.add(c);
+                result.put("warning", "未能获取容器列表，已使用默认值");
+            }
         } else {
             // Docker：单容器，视为后台
             Map<String, String> c = new LinkedHashMap<>();
@@ -714,6 +728,7 @@ public class InstanceMonitorService {
         result.put("containers", containers);
         result.put("hasFrontend", containers.stream().anyMatch(c -> "frontend".equals(c.get("role"))));
         result.put("hasBackend", containers.stream().anyMatch(c -> "backend".equals(c.get("role"))));
+        System.out.println("[CONTAINERS] 最终结果: containers=" + containers.size() + " hasFrontend=" + result.get("hasFrontend") + " hasBackend=" + result.get("hasBackend"));
         return result;
     }
 

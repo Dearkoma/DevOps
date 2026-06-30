@@ -178,8 +178,14 @@ export default function InstanceList() {
     setActiveLogRole(null)
     try {
       setAccessInfo(await getAccessInfo(inst.id))
-      try { setContainersData(await getInstanceContainers(inst.id)) }
-      catch (e) { setContainersData({ success: false, containers: [{ name: inst.instanceName, role: 'backend' }], hasFrontend: false, hasBackend: true }) }
+      try {
+        const containersResult = await getInstanceContainers(inst.id)
+        console.log('[容器列表API] 实例', inst.id, '返回:', JSON.stringify(containersResult))
+        setContainersData(containersResult)
+      } catch (e) {
+        console.error('[容器列表API] 实例', inst.id, '失败:', e.message)
+        setContainersData({ success: false, containers: [{ name: inst.instanceName, role: 'backend' }], hasFrontend: false, hasBackend: true })
+      }
     }
     catch (e) { setAccessInfo({ success: false, error: e.message }) }
     finally { setAccessLoading(false) }
