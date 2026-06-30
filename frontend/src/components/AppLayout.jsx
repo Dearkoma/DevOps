@@ -152,7 +152,8 @@ export default function AppLayout() {
     }
   }
 
-  const userLevel = ROLE_LEVEL[user?.role] || 0
+  // 已登录但 role 无效（localStorage 旧数据/脏数据）时，降级到 DEVELOPER 避免菜单全空
+  const userLevel = ROLE_LEVEL[user?.role] ?? (user ? ROLE_LEVEL.DEVELOPER : 0)
 
   // 过滤不可见分组（组内至少有一项可见）
   const visibleGroups = menuGroups.map(group => {
