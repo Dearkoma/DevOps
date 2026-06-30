@@ -612,7 +612,7 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                               logsLoading === inst.id ? (
                                 <div style={{ textAlign: 'center', padding: 16, color: '#6b7280' }}><div className="spinner" /></div>
                               ) : logsData?.success === false ? (
-                                <div style={{ color: '#ef4444', fontSize: 12, padding: 8 }}>❌ {logsData.error}</div>
+                                <div style={{ color: '#ef4444', fontSize: 12, padding: 8, background: '#fef2f2', borderRadius: 6 }}>❌ {logsData.error}</div>
                               ) : logsData?.logs ? (
                                 <pre style={{
                                   background: '#1e1e1e', color: '#d4d4d4', borderRadius: 8,
@@ -620,7 +620,9 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                                   fontSize: 12, lineHeight: 1.5, fontFamily: 'Consolas, Monaco, "Courier New", monospace',
                                   whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0
                                 }}>{logsData.logs}</pre>
-                              ) : null
+                              ) : (
+                                <div style={{ color: '#9ca3af', fontSize: 12, padding: 8 }}>(暂无日志)</div>
+                              )
                             )}
                           </div>
                           </>

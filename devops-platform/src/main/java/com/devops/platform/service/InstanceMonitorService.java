@@ -250,10 +250,9 @@ public class InstanceMonitorService {
     private String resolveK8sPodNameAllPhases(String namespace, String searchTerm) {
         if (searchTerm == null || searchTerm.isEmpty()) return null;
 
-        String cmd = String.format("kubectl get pods -n %s "
-                + "-o custom-columns=NAME:.metadata.name --no-headers", namespace);
-        ProcessResult r = runCommand(cmd);
-        if (!r.success || r.output.isBlank()) return null;
+        ProcessResult r = kubectl("get", "pods", "-n", namespace,
+                "-o", "custom-columns=NAME:.metadata.name", "--no-headers");
+        if (!r.success || r.output == null || r.output.isBlank()) return null;
 
         // 优先前缀匹配（Deployment 创建的 Pod 名 = searchTerm-<replicaset-hash>-<pod-hash>）
         for (String line : r.output.split("\\R")) {
@@ -655,15 +654,12 @@ public class InstanceMonitorService {
             podName = resolveK8sPodNameAllPhases(ns, searchTerm);
         }
 
-        // 如果实时解析失败，回退到存储的 Pod 名（可能仍然有效）
-        if (podName == null || podName.isBlank()) {
-            podName = inst.getK8sPodName();
-        }
-
+        // 实时解析失败 = 没有 Pod（可能 Deployment replicas=0 已停止，或 Pod 已被删除）
         if (podName == null || podName.isBlank()) {
             result.put("success", false);
-            result.put("error", "未找到 Pod（命名空间: " + ns + "，搜索: " + searchTerm + "）");
+            result.put("error", "未找到运行中的 Pod——实例可能已停止（Deployment replicas=0）。请先重启实例再查看日志。");
             result.put("logs", "");
+            result.put("source", "namespace: " + ns + "，搜索: " + searchTerm);
             return;
         }
 
@@ -672,7 +668,9 @@ public class InstanceMonitorService {
         result.put("source", "kubectl logs " + podName + " -n " + ns);
 
         if (r.success) {
-            result.put("logs", r.output != null ? r.output : "(空日志)");
+            String logs = r.output != null ? r.output.trim() : "";
+            if (logs.isEmpty()) logs = "(暂无日志输出)";
+            result.put("logs", logs);
             result.put("podName", podName);
             result.put("namespace", ns);
             // 顺便更新存储的 Pod 名
@@ -683,7 +681,7 @@ public class InstanceMonitorService {
         } else {
             // Pod 可能已停止，尝试获取上一次运行的日志
             ProcessResult prev = kubectl("logs", podName, "-n", ns, "--previous", "--tail=" + tail);
-            if (prev.success && !prev.output.isBlank()) {
+            if (prev.success && prev.output != null && !prev.output.isBlank()) {
                 result.put("logs", "⚠️ Pod 当前无日志，以下是上一次运行的日志：\n\n" + prev.output);
                 result.put("podName", podName);
                 result.put("namespace", ns);
@@ -711,7 +709,9 @@ public class InstanceMonitorService {
         result.put("source", "docker logs --tail " + tail + " " + containerId.substring(0, Math.min(12, containerId.length())));
 
         if (r.success) {
-            result.put("logs", r.output != null && !r.output.isEmpty() ? r.output : "(空日志)");
+            String logs = r.output != null ? r.output.trim() : "";
+            if (logs.isEmpty()) logs = "(暂无日志输出)";
+            result.put("logs", logs);
             result.put("containerId", containerId);
         } else {
             result.put("success", false);
