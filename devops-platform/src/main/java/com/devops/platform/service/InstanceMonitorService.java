@@ -186,6 +186,32 @@ public class InstanceMonitorService {
         instanceRepository.save(inst);
     }
 
+    /**
+     * 解析 K8s Deployment 名称
+     * 优先用 instanceName 去掉 -k8s/-docker 后缀；
+     * 回退：从 Pod 名中去掉最后两段 hash（<depName>-<rsHash>-<podHash>）
+     */
+    private String resolveK8sDeploymentName(ServiceInstance inst) {
+        String depName = inst.getInstanceName();
+        if (depName != null) {
+            depName = depName.replaceAll("-(k8s|docker)$", "");
+        }
+        if (depName == null || depName.isBlank()) {
+            String pod = inst.getK8sPodName();
+            if (pod != null && !pod.isBlank()) {
+                String[] parts = pod.split("-");
+                if (parts.length >= 3) {
+                    StringBuilder sb = new StringBuilder(parts[0]);
+                    for (int i = 1; i < parts.length - 2; i++) sb.append("-").append(parts[i]);
+                    depName = sb.toString();
+                } else {
+                    depName = pod;
+                }
+            }
+        }
+        return (depName != null && !depName.isBlank()) ? depName : null;
+    }
+
     /** 解析 K8s 实际运行的 Pod 名称 */
     private String resolveK8sPodName(String namespace, String podNameHint, String instanceName, String projectName) {
         String searchTerm = podNameHint;
@@ -936,20 +962,19 @@ public class InstanceMonitorService {
 
     private Map<String, Object> restartK8sInstance(ServiceInstance inst) throws Exception {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
-        String podName = inst.getK8sPodName();
-        if (podName == null || podName.isEmpty()) {
-            return Map.of("success", false, "error", "K8s Pod 名称缺失");
+        String depName = resolveK8sDeploymentName(inst);
+        if (depName == null || depName.isEmpty()) {
+            return Map.of("success", false, "error", "无法解析 Deployment 名称");
         }
-        String cmd = String.format("kubectl rollout restart deployment/%s -n %s", podName, ns);
-        ProcessResult r = runCommand(cmd);
+        ProcessResult r = kubectl("rollout", "restart", "deployment/" + depName, "-n", ns);
         if (r.success) {
             inst.setStatus("RUNNING");
             inst.setHealthStatus("HEALTHY");
             inst.setLastHeartbeat(LocalDateTime.now());
             instanceRepository.save(inst);
-            return Map.of("success", true, "message", "K8s Deployment 正在滚动重启", "output", r.output);
+            return Map.of("success", true, "message", "K8s Deployment 正在滚动重启", "output", r.output, "deployment", depName);
         }
-        return Map.of("success", false, "error", "重启失败", "output", r.errorOutput);
+        return Map.of("success", false, "error", "重启失败", "output", r.output);
     }
 
     /**
@@ -990,18 +1015,17 @@ public class InstanceMonitorService {
 
     private Map<String, Object> stopK8sInstance(ServiceInstance inst) throws Exception {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
-        String podName = inst.getK8sPodName();
-        if (podName == null || podName.isEmpty()) {
-            return Map.of("success", false, "error", "K8s Pod 名称缺失");
+        String depName = resolveK8sDeploymentName(inst);
+        if (depName == null || depName.isEmpty()) {
+            return Map.of("success", false, "error", "无法解析 Deployment 名称");
         }
-        String cmd = String.format("kubectl scale deployment/%s --replicas=0 -n %s", podName, ns);
-        ProcessResult r = runCommand(cmd);
+        ProcessResult r = kubectl("scale", "deployment/" + depName, "--replicas=0", "-n", ns);
         if (r.success) {
             inst.setStatus("STOPPED");
             instanceRepository.save(inst);
-            return Map.of("success", true, "message", "K8s Deployment 已缩容到 0（所有 Pod 已停止）", "output", r.output);
+            return Map.of("success", true, "message", "K8s Deployment 已缩容到 0（所有 Pod 已停止）", "output", r.output, "deployment", depName);
         }
-        return Map.of("success", false, "error", "停止失败", "output", r.errorOutput);
+        return Map.of("success", false, "error", "停止失败", "output", r.output);
     }
 
     /**
@@ -1051,14 +1075,14 @@ public class InstanceMonitorService {
 
     private Map<String, Object> deleteK8sResources(ServiceInstance inst) throws Exception {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
-        String podName = inst.getK8sPodName();
-        if (podName == null || podName.isEmpty()) {
-            return Map.of("message", "K8s Pod 名称缺失，仅删除数据库记录");
-        }
-        String cmd = String.format("kubectl delete deployment %s -n %s --ignore-not-found=true", podName, ns);
-        ProcessResult r = runCommand(cmd);
+        String depName = resolveK8sDeploymentName(inst);
         Map<String, Object> result = new java.util.LinkedHashMap<>();
-        result.put("message", "K8s Deployment 已删除: " + podName);
+        if (depName == null || depName.isEmpty()) {
+            result.put("message", "无法解析 Deployment 名称，仅删除数据库记录");
+            return result;
+        }
+        ProcessResult r = kubectl("delete", "deployment", depName, "-n", ns, "--ignore-not-found=true");
+        result.put("message", "K8s Deployment 已删除: " + depName);
         result.put("output", r.output);
         return result;
     }
