@@ -56,21 +56,23 @@ public class InstanceMonitorService {
     public void checkHealth() {
         List<ServiceInstance> instances = instanceRepository.findAll();
         for (ServiceInstance inst : instances) {
-            if (inst.getLastHeartbeat() != null &&
-                    inst.getLastHeartbeat().plusMinutes(2).isBefore(LocalDateTime.now())) {
+            // 只对原本标记为 RUNNING 但心跳超时的实例降级
+            if ("RUNNING".equals(inst.getStatus())
+                    && inst.getLastHeartbeat() != null
+                    && inst.getLastHeartbeat().plusMinutes(2).isBefore(LocalDateTime.now())) {
                 inst.setHealthStatus("UNKNOWN");
-                inst.setStatus("UNKNOWN");
                 instanceRepository.save(inst);
             }
         }
     }
 
-    /** 定期采集所有运行中实例的 CPU/内存指标（每 15 秒） */
+    /** 定期采集所有实例的 CPU/内存指标（每 15 秒），不限制状态 */
     @Scheduled(fixedRate = 15000)
     public void collectMetrics() {
         List<ServiceInstance> instances = instanceRepository.findAll();
         for (ServiceInstance inst : instances) {
-            if (!"RUNNING".equals(inst.getStatus())) continue;
+            // 跳过已确认停止的实例
+            if ("STOPPED".equals(inst.getStatus())) continue;
             try {
                 if ("K8S".equals(inst.getDeployType())) {
                     collectK8sMetrics(inst);
@@ -128,6 +130,9 @@ public class InstanceMonitorService {
                 inst.setMemoryUsage(memMB);
             }
 
+            // 采集成功 → 标为运行中
+            inst.setStatus("RUNNING");
+            inst.setHealthStatus("HEALTHY");
             inst.setLastHeartbeat(LocalDateTime.now());
             instanceRepository.save(inst);
         } catch (Exception e) {
@@ -138,7 +143,9 @@ public class InstanceMonitorService {
     /** 通过 kubectl top 采集 K8s Pod 的 CPU/内存 */
     private void collectK8sMetrics(ServiceInstance inst) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
-        String podName = inst.getK8sPodName();
+
+        // 先解析实际运行的 Pod 名（DB 存的可能是 Deployment 名而非完整 Pod 名）
+        String podName = resolveK8sPodName(ns, inst.getK8sPodName(), inst.getInstanceName(), inst.getProjectName());
         if (podName == null || podName.isEmpty()) return;
 
         String cmd = String.format("kubectl top pod %s -n %s --no-headers", podName, ns);
@@ -170,8 +177,43 @@ public class InstanceMonitorService {
             inst.setMemoryUsage(memMB);
         }
 
+        // 采集成功 → 更新 Pod 名（完整名）、标为运行中
+        inst.setK8sPodName(podName);
+        inst.setStatus("RUNNING");
+        inst.setHealthStatus("HEALTHY");
         inst.setLastHeartbeat(LocalDateTime.now());
         instanceRepository.save(inst);
+    }
+
+    /** 解析 K8s 实际运行的 Pod 名称 */
+    private String resolveK8sPodName(String namespace, String podNameHint, String instanceName, String projectName) {
+        String searchTerm = podNameHint;
+        if (searchTerm == null || searchTerm.isEmpty()) {
+            searchTerm = (projectName != null) ? projectName : instanceName;
+        }
+        if (searchTerm == null || searchTerm.isEmpty()) return null;
+
+        // 先尝试直接 kubectl get pods 查找匹配的 Running Pod
+        // 优先精确匹配，否则前缀匹配
+        String cmd = String.format("kubectl get pods -n %s --field-selector=status.phase=Running "
+                + "-o custom-columns=NAME:.metadata.name --no-headers", namespace);
+        ProcessResult r = runCommand(cmd);
+        if (!r.success || r.output.isBlank()) return null;
+
+        for (String line : r.output.split("\\R")) {
+            String name = line.trim();
+            if (name.isEmpty()) continue;
+            if (name.equals(searchTerm)) return name;
+            if (name.startsWith(searchTerm + "-")) return name;
+        }
+
+        // 再试宽松匹配：name 包含 searchTerm
+        for (String line : r.output.split("\\R")) {
+            String name = line.trim();
+            if (!name.isEmpty() && name.contains(searchTerm)) return name;
+        }
+
+        return null;
     }
 
     /** 解析 Docker stats 返回的内存字符串 (KiB/MiB/GiB/KB/MB/GB/B → MB) */
