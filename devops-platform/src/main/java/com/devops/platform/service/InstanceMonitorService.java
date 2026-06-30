@@ -428,9 +428,18 @@ public class InstanceMonitorService {
         return info;
     }
 
+    /** 从实例名推导 K8s Service 名 */
+    private String resolveK8sServiceName(ServiceInstance inst) {
+        // 实例名格式: proj-xxx-k8s → Service 名: proj-xxx-svc
+        String base = inst.getInstanceName();
+        if (base.endsWith("-k8s")) base = base.substring(0, base.length() - 4);
+        else if (base.endsWith("-docker")) base = base.substring(0, base.length() - 7);
+        return base + "-svc";
+    }
+
     private void buildK8sAccessInfo(ServiceInstance inst, Map<String, Object> info) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
-        String svcName = inst.getInstanceName() + "-svc";
+        String svcName = resolveK8sServiceName(inst);
         int port = inst.getPort() != null ? inst.getPort() : 8080;
 
         // 内部链接：ClusterIP 服务地址
@@ -547,16 +556,26 @@ public class InstanceMonitorService {
 
     private Map<String, Object> exposeK8sToExternal(ServiceInstance inst) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
-        String svcName = inst.getInstanceName() + "-svc";
+        String svcName = resolveK8sServiceName(inst);
 
-        // 先检查是否已经是 NodePort
+        // 先检查 Service 是否存在
+        String existsCmd = String.format("kubectl get svc %s -n %s -o name 2>&1", svcName, ns);
+        ProcessResult existsR = runCommand(existsCmd);
+        if (!existsR.success || existsR.output.contains("not found") || existsR.output.contains("NotFound")) {
+            return Map.of("success", false, "error",
+                    "K8s Service \"" + svcName + "\" 不存在于命名空间 \"" + ns + "\"，请确认部署已完成");
+        }
+
+        // 检查是否已经是 NodePort
         String checkCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.type}'", svcName, ns);
         ProcessResult check = runCommand(checkCmd);
         if (check.success && "NodePort".equals(check.output.trim())) {
             // 已经是 NodePort，获取端口
             String portCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.ports[0].nodePort}'", svcName, ns);
             ProcessResult portR = runCommand(portCmd);
-            int nodePort = portR.success ? Integer.parseInt(portR.output.trim()) : -1;
+            int nodePort = -1;
+            try { nodePort = portR.success ? Integer.parseInt(portR.output.trim()) : -1; }
+            catch (NumberFormatException e) { /* ignore */ }
             return Map.of("success", true, "alreadyExposed", true,
                     "message", "服务已暴露到外部",
                     "externalUrl", String.format("http://localhost:%d", nodePort),
@@ -568,13 +587,16 @@ public class InstanceMonitorService {
                 "kubectl patch svc %s -n %s -p '{\"spec\":{\"type\":\"NodePort\"}}'", svcName, ns);
         ProcessResult patchR = runCommand(patchCmd);
         if (!patchR.success) {
-            return Map.of("success", false, "error", "修改 Service 类型失败", "output", patchR.errorOutput);
+            return Map.of("success", false, "error",
+                    "修改 Service 类型失败: " + patchR.errorOutput, "svcName", svcName);
         }
 
         // 获取分配的 NodePort
         String portCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.ports[0].nodePort}'", svcName, ns);
         ProcessResult portR = runCommand(portCmd);
-        int nodePort = portR.success ? Integer.parseInt(portR.output.trim()) : -1;
+        int nodePort = -1;
+        try { nodePort = portR.success ? Integer.parseInt(portR.output.trim()) : -1; }
+        catch (NumberFormatException e) { /* ignore */ }
 
         return Map.of("success", true, "alreadyExposed", false,
                 "message", "服务已暴露到外部，可通过 localhost:" + nodePort + " 访问",
