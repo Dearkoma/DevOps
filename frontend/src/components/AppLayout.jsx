@@ -129,7 +129,6 @@ export default function AppLayout() {
                     >
                       <span className="icon">{icon}</span>
                       {label}
-                      <CountBadge count={badgeCounts[path]} />
                       <span style={{ fontSize: 10, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
                     </div>
                     {isExpanded && (
@@ -163,7 +162,7 @@ export default function AppLayout() {
                   >
                     <span className="icon">{icon}</span>
                     {label}
-                    <CountBadge count={badgeCounts[path]} />
+                    {path === '/notifications' && <CountBadge count={badgeCounts[path]} />}
                   </NavLink>
                 )}
               </div>
