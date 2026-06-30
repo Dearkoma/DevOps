@@ -6,7 +6,7 @@ import {
   fetchAvailability, fetchK8sStatus, reconnectK8s,
   deleteInstance, restartInstance, stopInstance,
   fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment,
-  getAccessInfo, exposeToExternal
+  getAccessInfo, exposeToExternal, getInstanceLogs
 } from '../api'
 
 function useActivePage() {
@@ -36,6 +36,11 @@ export default function InstanceList() {
   const [accessInfo, setAccessInfo] = useState(null)
   const [accessLoading, setAccessLoading] = useState(false)
   const [exposingId, setExposingId] = useState(null)
+
+  // 日志查看
+  const [logsData, setLogsData] = useState(null)       // { [instanceId]: { success, logs, ... } }
+  const [logsLoading, setLogsLoading] = useState(null)  // 正在加载日志的 instanceId
+  const [showLogsId, setShowLogsId] = useState(null)    // 当前显示日志的 instanceId
 
   // K8s Deployments
   const [deployments, setDeployments] = useState([])
@@ -121,12 +126,52 @@ export default function InstanceList() {
 
   // 展开/收起访问信息
   const handleToggleRow = async (inst) => {
-    if (expandedId === inst.id) { setExpandedId(null); setAccessInfo(null); return }
+    if (expandedId === inst.id) {
+      setExpandedId(null); setAccessInfo(null)
+      setShowLogsId(null); setLogsData(null)
+      return
+    }
     setExpandedId(inst.id)
     setAccessLoading(true)
+    setShowLogsId(null)
+    setLogsData(null)
     try { setAccessInfo(await getAccessInfo(inst.id)) }
     catch (e) { setAccessInfo({ success: false, error: e.message }) }
     finally { setAccessLoading(false) }
+  }
+
+  // 查看容器日志
+  const handleViewLogs = async (inst, tail = 200) => {
+    setShowLogsId(inst.id)
+    setLogsLoading(inst.id)
+    try {
+      const r = await getInstanceLogs(inst.id, tail)
+      setLogsData(r)
+    } catch (e) {
+      setLogsData({ success: false, error: e.message, logs: '' })
+    } finally {
+      setLogsLoading(null)
+    }
+  }
+
+  // 保存日志到文件
+  const handleSaveLogs = (inst) => {
+    const data = logsData
+    if (!data?.logs) { alert('暂无日志可保存'); return }
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const filename = `${inst.instanceName || 'instance'}-logs-${ts}.txt`
+    const header = `# 实例: ${inst.instanceName}\n# 部署类型: ${inst.deployType}\n# 来源: ${data.source || '-'}\n# 保存时间: ${new Date().toLocaleString()}\n${'='.repeat(60)}\n\n`
+    const blob = new Blob([header + data.logs], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // 关闭日志
+  const handleCloseLogs = () => {
+    setShowLogsId(null)
+    setLogsData(null)
   }
 
   // 一键部署到外部
@@ -144,7 +189,8 @@ export default function InstanceList() {
 
   const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, restartTarget, setRestartTarget, handleRestartInstance, stopTarget, setStopTarget, handleStopInstance, canManage, loadAll,
     expandedId, accessInfo, accessLoading, exposingId,
-    onToggleRow: handleToggleRow, onExpose: handleExpose }
+    onToggleRow: handleToggleRow, onExpose: handleExpose,
+    logsData, logsLoading, showLogsId, onViewLogs: handleViewLogs, onSaveLogs: handleSaveLogs, onCloseLogs: handleCloseLogs }
 
   return (
     <>
@@ -276,7 +322,7 @@ function DeleteDeploymentModal({ target, namespace, onClose, onConfirm }) {
 }
 
 // ==================== 页面视图 ====================
-function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose }) {
+function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
   return (
     <>
       <div className="page-header">
@@ -285,12 +331,13 @@ function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget,
       </div>
       {stats && <StatsRow stats={stats} />}
       <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
-        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose} />
+        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
+        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
     </>
   )
 }
 
-function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose }) {
+function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
   const dStats = statsByType?.docker
   return (
     <>
@@ -309,7 +356,8 @@ function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarge
       )}
       {dStats && <TypeStats summary={dStats} label="Docker" />}
       <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
-        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose} />
+        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
+        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
     </>
   )
 }
@@ -321,6 +369,7 @@ function K8sView({
   deleteDepTarget, setDeleteDepTarget, handleDeleteDeployment,
   setDeleteTarget, setRestartTarget, setStopTarget, loadAll, canManage,
   expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose,
+  logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs,
 }) {
   const kStats = statsByType?.k8s
   return (
@@ -337,7 +386,8 @@ function K8sView({
       />
       {kStats && <TypeStats summary={kStats} label="K8s" />}
       <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
-        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose} />
+        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
+        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
       {k8sStatus?.connected && <DeploymentPanel
         deployments={deployments} depLoading={depLoading}
         depNamespace={depNamespace} setDepNamespace={setDepNamespace} loadDeployments={loadDeployments}
@@ -404,7 +454,7 @@ function PodList({ pods, count }) {
   )
 }
 
-function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose }) {
+function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
   if (instances.length === 0) return (
     <div className="card"><div className="empty-state"><div className="icon">📦</div><p>暂无服务实例</p><p style={{ fontSize: 12 }}>构建并部署后，服务实例将自动注册</p></div></div>
   )
@@ -461,6 +511,7 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                         ) : accessInfo?.success === false ? (
                           <div style={{ color: '#ef4444', fontSize: 13 }}>❌ {accessInfo.error}</div>
                         ) : accessInfo ? (
+                          <>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
                             {/* 内部链接 */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -517,6 +568,62 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                               )}
                             </div>
                           </div>
+
+                          {/* 日志区域 */}
+                          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #d1d5db' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                📜 容器日志{logsData?.source ? <span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>({logsData.source})</span> : null}
+                              </span>
+                              {showLogsId !== inst.id ? (
+                                <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                                  onClick={(e) => { e.stopPropagation(); onViewLogs(inst) }}>
+                                  📋 查看日志
+                                </button>
+                              ) : (
+                                <>
+                                  <select style={{ fontSize: 11, padding: '2px 4px', borderRadius: 4, border: '1px solid #d1d5db' }}
+                                    onChange={(e) => { e.stopPropagation(); onViewLogs(inst, parseInt(e.target.value)) }}
+                                    value={logsData?.tailLines || 200}
+                                  >
+                                    <option value={100}>100行</option>
+                                    <option value={200}>200行</option>
+                                    <option value={500}>500行</option>
+                                    <option value={1000}>1000行</option>
+                                  </select>
+                                  <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                                    onClick={(e) => { e.stopPropagation(); onViewLogs(inst, logsData?.tailLines || 200) }}
+                                    disabled={logsLoading === inst.id}>
+                                    {logsLoading === inst.id ? '⏳ 加载中...' : '🔄 刷新'}
+                                  </button>
+                                  <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px', color: '#6366f1', borderColor: '#6366f1' }}
+                                    onClick={(e) => { e.stopPropagation(); onSaveLogs(inst) }}
+                                    disabled={!logsData?.logs}>
+                                    💾 保存到文件
+                                  </button>
+                                  <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                                    onClick={(e) => { e.stopPropagation(); onCloseLogs() }}>
+                                    ✕ 关闭
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                            {showLogsId === inst.id && (
+                              logsLoading === inst.id ? (
+                                <div style={{ textAlign: 'center', padding: 16, color: '#6b7280' }}><div className="spinner" /></div>
+                              ) : logsData?.success === false ? (
+                                <div style={{ color: '#ef4444', fontSize: 12, padding: 8 }}>❌ {logsData.error}</div>
+                              ) : logsData?.logs ? (
+                                <pre style={{
+                                  background: '#1e1e1e', color: '#d4d4d4', borderRadius: 8,
+                                  padding: 12, maxHeight: 400, overflow: 'auto',
+                                  fontSize: 12, lineHeight: 1.5, fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0
+                                }}>{logsData.logs}</pre>
+                              ) : null
+                            )}
+                          </div>
+                          </>
                         ) : null}
                       </div>
                     </td>

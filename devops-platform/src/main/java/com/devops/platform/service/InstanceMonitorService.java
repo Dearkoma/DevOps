@@ -559,6 +559,97 @@ public class InstanceMonitorService {
         }
     }
 
+    // ==================== 容器日志 ====================
+
+    /**
+     * 获取实例的容器日志（Docker / K8s）
+     * @param id     实例 ID
+     * @param tail   获取最后 N 行日志
+     * @return Map: success, deployType, logs, source, tailLines
+     */
+    public Map<String, Object> getContainerLogs(Long id, int tail) {
+        ServiceInstance inst = instanceRepository.findById(id).orElse(null);
+        if (inst == null) return Map.of("success", false, "error", "实例不存在");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("instanceName", inst.getInstanceName());
+        result.put("deployType", inst.getDeployType());
+        result.put("tailLines", tail);
+
+        if ("K8S".equals(inst.getDeployType())) {
+            collectK8sLogs(inst, tail, result);
+        } else {
+            collectDockerLogs(inst, tail, result);
+        }
+        return result;
+    }
+
+    /** 获取 K8s Pod 日志 */
+    private void collectK8sLogs(ServiceInstance inst, int tail, Map<String, Object> result) {
+        String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
+
+        // 解析实际 Pod 名
+        String podName = inst.getK8sPodName();
+        if (podName == null || podName.isBlank()) {
+            podName = resolveK8sPodName(ns, null, inst.getInstanceName(), inst.getProjectName());
+        }
+
+        if (podName == null || podName.isBlank()) {
+            result.put("success", false);
+            result.put("error", "未找到运行中的 Pod（命名空间: " + ns + "）");
+            result.put("logs", "");
+            return;
+        }
+
+        // kubectl logs <pod> -n <ns> --tail=<tail>
+        ProcessResult r = kubectl("logs", podName, "-n", ns, "--tail=" + tail);
+        result.put("source", "kubectl logs " + podName + " -n " + ns);
+
+        if (r.success) {
+            result.put("logs", r.output != null ? r.output : "(空日志)");
+            result.put("podName", podName);
+            result.put("namespace", ns);
+        } else {
+            // Pod 可能已停止，尝试不带 --tail 获取之前的日志
+            ProcessResult prev = kubectl("logs", podName, "-n", ns, "--previous", "--tail=" + tail);
+            if (prev.success && !prev.output.isBlank()) {
+                result.put("logs", "⚠️ Pod 当前无日志，以下是上一次运行的日志：\n\n" + prev.output);
+                result.put("podName", podName);
+                result.put("namespace", ns);
+            } else {
+                result.put("success", false);
+                result.put("error", "获取 K8s 日志失败: " + (r.output != null ? r.output : "未知错误"));
+                result.put("logs", "");
+            }
+        }
+    }
+
+    /** 获取 Docker 容器日志 */
+    private void collectDockerLogs(ServiceInstance inst, int tail, Map<String, Object> result) {
+        String containerId = resolveDockerContainerId(inst);
+
+        if (containerId == null || containerId.isBlank()) {
+            result.put("success", false);
+            result.put("error", "未找到运行中的 Docker 容器");
+            result.put("logs", "");
+            return;
+        }
+
+        // docker logs --tail <tail> <containerId>
+        ProcessResult r = docker("logs", "--tail", String.valueOf(tail), containerId);
+        result.put("source", "docker logs --tail " + tail + " " + containerId.substring(0, Math.min(12, containerId.length())));
+
+        if (r.success) {
+            result.put("logs", r.output != null && !r.output.isEmpty() ? r.output : "(空日志)");
+            result.put("containerId", containerId);
+        } else {
+            result.put("success", false);
+            result.put("error", "获取 Docker 日志失败: " + (r.output != null ? r.output : "未知错误"));
+            result.put("logs", "");
+        }
+    }
+
     /** 安全执行 kubectl 命令（ProcessBuilder 传参数组，避免 shell 引号解析问题） */
     private ProcessResult kubectl(String... args) {
         return runWithProcessBuilder("kubectl", args);

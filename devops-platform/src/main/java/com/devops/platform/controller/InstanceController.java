@@ -109,6 +109,18 @@ public class InstanceController {
     }
 
     /**
+     * 获取实例容器日志（Docker / K8s）
+     * @param tail  获取最后 N 行日志（默认 200）
+     */
+    @GetMapping("/{id}/logs")
+    public ResponseEntity<Map<String, Object>> getLogs(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "200") int tail) {
+        Map<String, Object> result = monitorService.getContainerLogs(id, tail);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
      * K8s 连通性检测
      * 使用 Kubernetes Java Client 连接集群，检查是否可用，并拉取 Pod 列表
      */
