@@ -6,7 +6,7 @@ import {
   fetchAvailability, fetchK8sStatus, reconnectK8s,
   deleteInstance, restartInstance, stopInstance, startInstance,
   fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment,
-  getAccessInfo, exposeToExternal, getInstanceLogs, getInstanceBuildLogs
+  getAccessInfo, exposeToExternal, getInstanceLogs, getInstanceContainers
 } from '../api'
 
 function useActivePage() {
@@ -42,8 +42,9 @@ export default function InstanceList() {
   const [logsData, setLogsData] = useState(null)       // 当前实例的日志数据
   const [logsLoading, setLogsLoading] = useState(null)  // 正在加载日志的 instanceId
   const [showLogsId, setShowLogsId] = useState(null)    // 当前显示日志的 instanceId
-  const [logsCache, setLogsCache] = useState({})        // 日志缓存: { [id]: { logs, source, timestamp } }
-  const [logType, setLogType] = useState(null)          // 'backend' | 'frontend' — 当前日志类型
+  const [logsCache, setLogsCache] = useState({})        // 日志缓存: { [id-role]: { logs, source, timestamp } }
+  const [containersData, setContainersData] = useState(null)  // 当前展开实例的容器列表
+  const [activeLogRole, setActiveLogRole] = useState(null)    // 当前查看的日志角色 'backend'/'frontend'
 
   // K8s Deployments
   const [deployments, setDeployments] = useState([])
@@ -104,10 +105,10 @@ export default function InstanceList() {
       setRestartTarget(null)
       alert(r?.message || (r?.success ? '重启成功' : '重启失败: ' + (r?.error || '')))
       loadAll()
-      // 重启后如果后台日志面板正打开，延迟刷新（Pod 需要几秒启动）
-      if (showLogsId === instId && logType === 'backend') {
+      // 重启后如果日志面板正打开，延迟刷新（Pod 需要几秒启动）
+      if (showLogsId === instId) {
         setLogsData({ success: true, logs: '⏳ 实例正在重启，等待 Pod 启动后自动获取日志...', source: 'waiting' })
-        setTimeout(() => handleViewLogs({ id: instId }), 5000)
+        setTimeout(() => handleViewLogs({ id: instId }, activeLogRole || 'backend'), 5000)
       }
     } catch (e) { setRestartTarget(null); alert('重启失败: ' + e.message) }
   }
@@ -119,9 +120,9 @@ export default function InstanceList() {
       setStopTarget(null)
       alert(r?.message || (r?.success ? '已停止' : '停止失败: ' + (r?.error || '')))
       loadAll()
-      // 停止后后台日志面板显示缓存日志 + 提示
-      if (showLogsId === instId && logType === 'backend') {
-        const cached = logsCache[instId]
+      // 停止后日志面板显示缓存日志 + 提示
+      if (showLogsId === instId) {
+        const cached = logsCache[instId + '-' + (activeLogRole || 'backend')]
         setLogsData({
           success: false,
           stopped: true,
@@ -141,10 +142,10 @@ export default function InstanceList() {
       setStartTarget(null)
       alert(r?.message || (r?.success ? '启动成功' : '启动失败: ' + (r?.error || '')))
       loadAll()
-      // 启动后如果后台日志面板正打开，延迟刷新
-      if (showLogsId === instId && logType === 'backend') {
+      // 启动后如果日志面板正打开，延迟刷新
+      if (showLogsId === instId) {
         setLogsData({ success: true, logs: '⏳ 实例正在启动，等待 Pod 就绪后自动获取日志...', source: 'waiting' })
-        setTimeout(() => handleViewLogs({ id: instId }), 5000)
+        setTimeout(() => handleViewLogs({ id: instId }, activeLogRole || 'backend'), 5000)
       }
     } catch (e) { setStartTarget(null); alert('启动失败: ' + e.message) }
   }
@@ -165,50 +166,44 @@ export default function InstanceList() {
   const handleToggleRow = async (inst) => {
     if (expandedId === inst.id) {
       setExpandedId(null); setAccessInfo(null)
-      setShowLogsId(null); setLogsData(null); setLogType(null)
+      setShowLogsId(null); setLogsData(null)
+      setContainersData(null); setActiveLogRole(null)
       return
     }
     setExpandedId(inst.id)
     setAccessLoading(true)
     setShowLogsId(null)
     setLogsData(null)
-    try { setAccessInfo(await getAccessInfo(inst.id)) }
+    setContainersData(null)
+    setActiveLogRole(null)
+    try {
+      setAccessInfo(await getAccessInfo(inst.id))
+      try { setContainersData(await getInstanceContainers(inst.id)) }
+      catch (e) { setContainersData({ success: false, containers: [{ name: inst.instanceName, role: 'backend' }], hasFrontend: false, hasBackend: true }) }
+    }
     catch (e) { setAccessInfo({ success: false, error: e.message }) }
     finally { setAccessLoading(false) }
   }
 
-  // 查看后台容器日志
-  const handleViewLogs = async (inst, tail = 200) => {
+  // 查看容器日志（role: 'backend' / 'frontend'）
+  const handleViewLogs = async (inst, role, tail = 200) => {
+    const logRole = role || 'backend'
     setShowLogsId(inst.id)
-    setLogType('backend')
+    setActiveLogRole(logRole)
     setLogsLoading(inst.id)
+    // 根据 role 找到容器名
+    const containers = containersData?.containers || []
+    const container = containers.find(c => c.role === logRole)?.name || null
     try {
-      const r = await getInstanceLogs(inst.id, tail)
-      console.log('[后台日志API] 实例', inst.id, '返回:', r)
+      const r = await getInstanceLogs(inst.id, tail, container)
+      console.log('[日志API] 实例', inst.id, '容器', container, '角色', logRole, '返回:', r)
       setLogsData(r)
-      // 成功获取日志时缓存
+      // 成功获取日志时缓存（按 id-role 分开缓存）
       if (r.success && r.logs) {
-        setLogsCache(prev => ({ ...prev, [inst.id]: { logs: r.logs, source: r.source, timestamp: Date.now() } }))
+        setLogsCache(prev => ({ ...prev, [inst.id + '-' + logRole]: { logs: r.logs, source: r.source, timestamp: Date.now() } }))
       }
     } catch (e) {
-      console.error('[后台日志API] 实例', inst.id, '失败:', e)
-      setLogsData({ success: false, error: e.message, logs: '' })
-    } finally {
-      setLogsLoading(null)
-    }
-  }
-
-  // 查看前台构建日志
-  const handleViewBuildLogs = async (inst) => {
-    setShowLogsId(inst.id)
-    setLogType('frontend')
-    setLogsLoading(inst.id)
-    try {
-      const r = await getInstanceBuildLogs(inst.id)
-      console.log('[前台日志API] 实例', inst.id, '返回:', r)
-      setLogsData(r)
-    } catch (e) {
-      console.error('[前台日志API] 实例', inst.id, '失败:', e)
+      console.error('[日志API] 实例', inst.id, '失败:', e)
       setLogsData({ success: false, error: e.message, logs: '' })
     } finally {
       setLogsLoading(null)
@@ -220,9 +215,9 @@ export default function InstanceList() {
     const data = logsData
     if (!data?.logs) { alert('暂无日志可保存'); return }
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const typeLabel = logType === 'frontend' ? 'frontend' : 'backend'
-    const filename = `${inst.instanceName || 'instance'}-${typeLabel}-logs-${ts}.txt`
-    const header = `# 实例: ${inst.instanceName}\n# 日志类型: ${logType === 'frontend' ? '前台构建日志' : '后台运行日志'}\n# 部署类型: ${inst.deployType}\n# 来源: ${data.source || '-'}\n# 保存时间: ${new Date().toLocaleString()}\n${'='.repeat(60)}\n\n`
+    const roleLabel = activeLogRole === 'frontend' ? 'frontend' : 'backend'
+    const filename = `${inst.instanceName || 'instance'}-${roleLabel}-logs-${ts}.txt`
+    const header = `# 实例: ${inst.instanceName}\n# 日志类型: ${activeLogRole === 'frontend' ? '前台日志' : '后台日志'}\n# 部署类型: ${inst.deployType}\n# 来源: ${data.source || '-'}\n# 保存时间: ${new Date().toLocaleString()}\n${'='.repeat(60)}\n\n`
     const blob = new Blob([header + data.logs], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -234,7 +229,7 @@ export default function InstanceList() {
   const handleCloseLogs = () => {
     setShowLogsId(null)
     setLogsData(null)
-    setLogType(null)
+    setActiveLogRole(null)
   }
 
   // 一键部署到外部
@@ -253,7 +248,8 @@ export default function InstanceList() {
   const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, restartTarget, setRestartTarget, handleRestartInstance, stopTarget, setStopTarget, handleStopInstance, startTarget, setStartTarget, handleStartInstance, canManage, loadAll,
     expandedId, accessInfo, accessLoading, exposingId,
     onToggleRow: handleToggleRow, onExpose: handleExpose,
-    logsData, logsLoading, showLogsId, logType, onViewLogs: handleViewLogs, onViewBuildLogs: handleViewBuildLogs, onSaveLogs: handleSaveLogs, onCloseLogs: handleCloseLogs }
+    logsData, logsLoading, showLogsId, onViewLogs: handleViewLogs, onSaveLogs: handleSaveLogs, onCloseLogs: handleCloseLogs,
+    containersData, activeLogRole }
 
   return (
     <>
@@ -414,7 +410,7 @@ function DeleteDeploymentModal({ target, namespace, onClose, onConfirm }) {
 }
 
 // ==================== 页面视图 ====================
-function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, logType, onViewLogs, onViewBuildLogs, onSaveLogs, onCloseLogs }) {
+function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole }) {
   return (
     <>
       <div className="page-header">
@@ -424,12 +420,12 @@ function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget,
       {stats && <StatsRow stats={stats} />}
       <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
         expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
-        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} logType={logType} onViewLogs={onViewLogs} onViewBuildLogs={onViewBuildLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
+        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} containersData={containersData} activeLogRole={activeLogRole} />
     </>
   )
 }
 
-function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, logType, onViewLogs, onViewBuildLogs, onSaveLogs, onCloseLogs }) {
+function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole }) {
   const dStats = statsByType?.docker
   return (
     <>
@@ -449,7 +445,7 @@ function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarge
       {dStats && <TypeStats summary={dStats} label="Docker" />}
       <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
         expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
-        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} logType={logType} onViewLogs={onViewLogs} onViewBuildLogs={onViewBuildLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
+        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} containersData={containersData} activeLogRole={activeLogRole} />
     </>
   )
 }
@@ -461,7 +457,7 @@ function K8sView({
   deleteDepTarget, setDeleteDepTarget, handleDeleteDeployment,
   setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, canManage,
   expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose,
-  logsData, logsLoading, showLogsId, logType, onViewLogs, onViewBuildLogs, onSaveLogs, onCloseLogs,
+  logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole,
 }) {
   const kStats = statsByType?.k8s
   return (
@@ -479,7 +475,7 @@ function K8sView({
       {kStats && <TypeStats summary={kStats} label="K8s" />}
       <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
         expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
-        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} logType={logType} onViewLogs={onViewLogs} onViewBuildLogs={onViewBuildLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
+        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} containersData={containersData} activeLogRole={activeLogRole} />
       {k8sStatus?.connected && <DeploymentPanel
         deployments={deployments} depLoading={depLoading}
         depNamespace={depNamespace} setDepNamespace={setDepNamespace} loadDeployments={loadDeployments}
@@ -546,7 +542,7 @@ function PodList({ pods, count }) {
   )
 }
 
-function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, logType, onViewLogs, onViewBuildLogs, onSaveLogs, onCloseLogs }) {
+function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole }) {
   if (instances.length === 0) return (
     <div className="card"><div className="empty-state"><div className="icon">📦</div><p>暂无服务实例</p><p style={{ fontSize: 12 }}>构建并部署后，服务实例将自动注册</p></div></div>
   )
@@ -677,50 +673,70 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                         {!accessLoading && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #d1d5db' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                {showLogsId === inst.id
+                                  ? (activeLogRole === 'frontend' ? '🌐 前台日志' : '🖥 后台日志')
+                                  : '📜 服务日志'}
+                                {logsData?.source ? <span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>({logsData.source})</span> : null}
+                              </span>
                               {showLogsId !== inst.id ? (
                                 <>
-                                  <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>📜 日志查看</span>
-                                  <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
-                                    onClick={(e) => { e.stopPropagation(); onViewLogs(inst) }}>
-                                    🖥 后台日志
-                                  </button>
-                                  <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
-                                    onClick={(e) => { e.stopPropagation(); onViewBuildLogs(inst) }}>
-                                    🌐 前台日志
-                                  </button>
+                                  {containersData?.hasBackend && (
+                                    <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                                      onClick={(e) => { e.stopPropagation(); onViewLogs(inst, 'backend') }}>
+                                      🖥 后台日志
+                                    </button>
+                                  )}
+                                  {containersData?.hasFrontend && (
+                                    <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                                      onClick={(e) => { e.stopPropagation(); onViewLogs(inst, 'frontend') }}>
+                                      🌐 前台日志
+                                    </button>
+                                  )}
+                                  {!containersData?.hasBackend && !containersData?.hasFrontend && (
+                                    <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                                      onClick={(e) => { e.stopPropagation(); onViewLogs(inst, 'backend') }}>
+                                      📋 查看日志
+                                    </button>
+                                  )}
                                 </>
                               ) : (
                                 <>
-                                  {/* 标签页式切换 */}
-                                  <button style={{ fontSize: 11, padding: '3px 10px', borderRadius: '4px 0 0 4px', border: '1px solid #d1d5db',
-                                      background: logType === 'backend' ? '#6366f1' : '#fff', color: logType === 'backend' ? '#fff' : '#374151',
-                                      cursor: 'pointer', fontWeight: 600 }}
-                                    onClick={(e) => { e.stopPropagation(); if (logType !== 'backend') onViewLogs(inst) }}>
-                                    🖥 后台日志
-                                  </button>
-                                  <button style={{ fontSize: 11, padding: '3px 10px', borderRadius: '0 4px 4px 0', border: '1px solid #d1d5db', borderLeft: 'none',
-                                      background: logType === 'frontend' ? '#6366f1' : '#fff', color: logType === 'frontend' ? '#fff' : '#374151',
-                                      cursor: 'pointer', fontWeight: 600 }}
-                                    onClick={(e) => { e.stopPropagation(); if (logType !== 'frontend') onViewBuildLogs(inst) }}>
-                                    🌐 前台日志
-                                  </button>
-                                  {logsData?.source && (
-                                    <span style={{ fontSize: 11, color: '#9ca3af' }}>({logsData.source})</span>
+                                  {containersData?.hasFrontend && containersData?.hasBackend && (
+                                    <>
+                                      <button className="btn btn-sm" style={{
+                                        fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                        background: activeLogRole === 'backend' ? '#3b82f6' : 'transparent',
+                                        color: activeLogRole === 'backend' ? '#fff' : '#6b7280',
+                                        border: '1px solid ' + (activeLogRole === 'backend' ? '#3b82f6' : '#d1d5db'),
+                                        borderRadius: 4
+                                      }}
+                                        onClick={(e) => { e.stopPropagation(); onViewLogs(inst, 'backend') }}>
+                                        🖥 后台
+                                      </button>
+                                      <button className="btn btn-sm" style={{
+                                        fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                        background: activeLogRole === 'frontend' ? '#3b82f6' : 'transparent',
+                                        color: activeLogRole === 'frontend' ? '#fff' : '#6b7280',
+                                        border: '1px solid ' + (activeLogRole === 'frontend' ? '#3b82f6' : '#d1d5db'),
+                                        borderRadius: 4
+                                      }}
+                                        onClick={(e) => { e.stopPropagation(); onViewLogs(inst, 'frontend') }}>
+                                        🌐 前台
+                                      </button>
+                                    </>
                                   )}
-                                  {/* 行数选择 — 仅后台日志 */}
-                                  {logType === 'backend' && (
-                                    <select style={{ fontSize: 11, padding: '2px 4px', borderRadius: 4, border: '1px solid #d1d5db' }}
-                                      onChange={(e) => { e.stopPropagation(); onViewLogs(inst, parseInt(e.target.value)) }}
-                                      value={logsData?.tailLines || 200}
-                                    >
-                                      <option value={100}>100行</option>
-                                      <option value={200}>200行</option>
-                                      <option value={500}>500行</option>
-                                      <option value={1000}>1000行</option>
-                                    </select>
-                                  )}
+                                  <select style={{ fontSize: 11, padding: '2px 4px', borderRadius: 4, border: '1px solid #d1d5db' }}
+                                    onChange={(e) => { e.stopPropagation(); onViewLogs(inst, activeLogRole, parseInt(e.target.value)) }}
+                                    value={logsData?.tailLines || 200}
+                                  >
+                                    <option value={100}>100行</option>
+                                    <option value={200}>200行</option>
+                                    <option value={500}>500行</option>
+                                    <option value={1000}>1000行</option>
+                                  </select>
                                   <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
-                                    onClick={(e) => { e.stopPropagation(); logType === 'backend' ? onViewLogs(inst, logsData?.tailLines || 200) : onViewBuildLogs(inst) }}
+                                    onClick={(e) => { e.stopPropagation(); onViewLogs(inst, activeLogRole, logsData?.tailLines || 200) }}
                                     disabled={logsLoading === inst.id}>
                                     {logsLoading === inst.id ? '⏳ 加载中...' : '🔄 刷新'}
                                   </button>

@@ -627,7 +627,7 @@ public class InstanceMonitorService {
      * @param tail   获取最后 N 行日志
      * @return Map: success, deployType, logs, source, tailLines
      */
-    public Map<String, Object> getContainerLogs(Long id, int tail) {
+    public Map<String, Object> getContainerLogs(Long id, int tail, String container) {
         ServiceInstance inst = instanceRepository.findById(id).orElse(null);
         if (inst == null) return Map.of("success", false, "error", "实例不存在");
 
@@ -636,6 +636,7 @@ public class InstanceMonitorService {
         result.put("instanceName", inst.getInstanceName());
         result.put("deployType", inst.getDeployType());
         result.put("tailLines", tail);
+        result.put("container", container);
         result.put("status", inst.getStatus());
 
         // K8s 停止后 Pod 被回收，日志不可获取——返回 stopped 标记，让前端显示缓存
@@ -648,15 +649,86 @@ public class InstanceMonitorService {
         }
 
         if ("K8S".equals(inst.getDeployType())) {
-            collectK8sLogs(inst, tail, result);
+            collectK8sLogs(inst, tail, container, result);
         } else {
             collectDockerLogs(inst, tail, result);
         }
         return result;
     }
 
+    /**
+     * 获取实例的容器列表（用于判断有无前台/后台服务）
+     * K8s: 解析 Pod 的 containers；Docker: 单容器
+     * @return Map: success, containers[{name,image,role}], hasFrontend, hasBackend
+     */
+    public Map<String, Object> getInstanceContainers(Long id) {
+        ServiceInstance inst = instanceRepository.findById(id).orElse(null);
+        if (inst == null) return Map.of("success", false, "error", "实例不存在");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("instanceName", inst.getInstanceName());
+        result.put("deployType", inst.getDeployType());
+        result.put("status", inst.getStatus());
+
+        java.util.List<Map<String, String>> containers = new java.util.ArrayList<>();
+
+        if ("K8S".equals(inst.getDeployType())) {
+            String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
+            String searchTerm = inst.getInstanceName();
+            if (searchTerm != null) searchTerm = searchTerm.replaceAll("-(k8s|docker)$", "");
+
+            String podName = null;
+            if (searchTerm != null && !searchTerm.isBlank()) {
+                podName = resolveK8sPodNameAllPhases(ns, searchTerm);
+            }
+
+            if (podName != null && !podName.isBlank()) {
+                ProcessResult r = kubectl("get", "pod", podName, "-n", ns, "-o",
+                        "jsonpath={range .spec.containers[*]}{.name}|{.image}{\"\\n\"}{end}");
+                if (r.success && r.output != null) {
+                    for (String line : r.output.split("\n")) {
+                        line = line.trim();
+                        if (line.isEmpty()) continue;
+                        String[] parts = line.split("\\|", 2);
+                        String name = parts[0];
+                        String image = parts.length > 1 ? parts[1] : "";
+                        Map<String, String> c = new LinkedHashMap<>();
+                        c.put("name", name);
+                        c.put("image", image);
+                        c.put("role", inferContainerRole(name, image));
+                        containers.add(c);
+                    }
+                }
+            }
+        } else {
+            // Docker：单容器，视为后台
+            Map<String, String> c = new LinkedHashMap<>();
+            c.put("name", inst.getInstanceName());
+            c.put("image", (inst.getImageName() != null ? inst.getImageName() : "")
+                    + ":" + (inst.getImageTag() != null ? inst.getImageTag() : ""));
+            c.put("role", "backend");
+            containers.add(c);
+        }
+
+        result.put("containers", containers);
+        result.put("hasFrontend", containers.stream().anyMatch(c -> "frontend".equals(c.get("role"))));
+        result.put("hasBackend", containers.stream().anyMatch(c -> "backend".equals(c.get("role"))));
+        return result;
+    }
+
+    /** 根据容器名/镜像推断角色：front/nginx/web/ui/static → 前台，其余 → 后台 */
+    private String inferContainerRole(String name, String image) {
+        String lower = ((name != null ? name : "") + " " + (image != null ? image : "")).toLowerCase();
+        if (lower.contains("front") || lower.contains("nginx") || lower.contains("web")
+                || lower.contains("ui") || lower.contains("static")) {
+            return "frontend";
+        }
+        return "backend";
+    }
+
     /** 获取 K8s Pod 日志 */
-    private void collectK8sLogs(ServiceInstance inst, int tail, Map<String, Object> result) {
+    private void collectK8sLogs(ServiceInstance inst, int tail, String container, Map<String, Object> result) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
 
         // 搜索词：用 instanceName 去掉 -k8s/-docker 后缀（Pod 名是 proj-xxx-<rs-hash>-<pod-hash>）
@@ -687,9 +759,12 @@ public class InstanceMonitorService {
             return;
         }
 
-        // kubectl logs <pod> -n <ns> --tail=<tail>
-        ProcessResult r = kubectl("logs", podName, "-n", ns, "--tail=" + tail);
-        result.put("source", "kubectl logs " + podName + " -n " + ns);
+        // kubectl logs <pod> [-c container] -n <ns> --tail=<tail>
+        java.util.List<String> logArgs = new java.util.ArrayList<>(java.util.List.of("logs", podName));
+        if (container != null && !container.isBlank()) { logArgs.add("-c"); logArgs.add(container); }
+        logArgs.add("-n"); logArgs.add(ns); logArgs.add("--tail=" + tail);
+        ProcessResult r = kubectl(logArgs.toArray(new String[0]));
+        result.put("source", "kubectl logs " + podName + (container != null && !container.isBlank() ? " -c " + container : "") + " -n " + ns);
 
         if (r.success) {
             String logs = r.output != null ? r.output.trim() : "";
@@ -704,7 +779,10 @@ public class InstanceMonitorService {
             }
         } else {
             // Pod 可能已停止，尝试获取上一次运行的日志
-            ProcessResult prev = kubectl("logs", podName, "-n", ns, "--previous", "--tail=" + tail);
+            java.util.List<String> prevArgs = new java.util.ArrayList<>(java.util.List.of("logs", podName));
+            if (container != null && !container.isBlank()) { prevArgs.add("-c"); prevArgs.add(container); }
+            prevArgs.add("-n"); prevArgs.add(ns); prevArgs.add("--previous"); prevArgs.add("--tail=" + tail);
+            ProcessResult prev = kubectl(prevArgs.toArray(new String[0]));
             if (prev.success && prev.output != null && !prev.output.isBlank()) {
                 result.put("logs", "⚠️ Pod 当前无日志，以下是上一次运行的日志：\n\n" + prev.output);
                 result.put("podName", podName);
