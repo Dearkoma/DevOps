@@ -7,6 +7,9 @@
 **/node_modules/
 **/tmp/
 
+# 前端构建产物（开发模式不需要，build 时自动生成）
+**/src/main/resources/static/
+
 # 日志与运行时产物
 **/logs/
 **/cddata/
