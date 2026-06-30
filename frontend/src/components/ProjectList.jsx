@@ -182,10 +182,16 @@ export default function ProjectList() {
           <span style={{
             color: isDir ? '#1f2937' : '#4b5563',
             fontWeight: isDir ? 600 : 400,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            flex: 1
           }}>
             {node.name}
           </span>
+          {isDir && (
+            <span style={{ color: '#9ca3af', fontSize: 10, marginLeft: 'auto', flexShrink: 0, transition: 'transform 0.15s', transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
+              ▼
+            </span>
+          )}
           {!isDir && node.size !== undefined && (
             <span style={{ color: '#9ca3af', fontSize: 10, marginLeft: 'auto', flexShrink: 0 }}>
               {node.size < 1024 ? node.size + ' B' : node.size < 1048576 ? (node.size / 1024).toFixed(1) + ' KB' : (node.size / 1048576).toFixed(1) + ' MB'}
