@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { fetchProjects, createProject, updateProject, deleteProject, fetchPipelines, fetchEnvironments, triggerBuild, fetchBuilds, checkWorkspace } from '../api'
+import { fetchProjects, createProject, updateProject, deleteProject, fetchPipelines, fetchEnvironments, triggerBuild, fetchBuilds, checkWorkspace, previewProjectCode, previewProjectFile } from '../api'
 
 const LANGUAGES = ['Java', 'Node.js', 'Python', 'Go', 'Rust', 'Other']
 const FRAMEWORKS = ['Spring Boot', 'Express', 'Django', 'Gin', 'Other']
@@ -14,7 +14,7 @@ const DEFAULT_FORM = {
 
 export default function ProjectList() {
   const navigate = useNavigate()
-  const { canManage, canTrigger } = useAuth()
+  const { canManage } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -29,6 +29,13 @@ export default function ProjectList() {
   const [detailEnvs, setDetailEnvs] = useState([])
   const [wsCheckResult, setWsCheckResult] = useState(null)
   const [wsChecking, setWsChecking] = useState(false)
+
+  // Code preview
+  const [previewTree, setPreviewTree] = useState(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState(null)
+  const [previewFile, setPreviewFile] = useState(null) // { path, name, content, language }
+  const [expandedDirs, setExpandedDirs] = useState(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -101,6 +108,95 @@ export default function ProjectList() {
     } finally {
       setWsChecking(false)
     }
+  }
+
+  const handlePreviewCode = async () => {
+    if (!detailProject) return
+    setPreviewLoading(true)
+    setPreviewError(null)
+    setPreviewTree(null)
+    setPreviewFile(null)
+    try {
+      const res = await previewProjectCode(detailProject.id)
+      if (res.error) {
+        setPreviewError(res.error)
+      } else {
+        setPreviewTree(res.tree)
+        // 自动展开根目录
+        setExpandedDirs(new Set(['']))
+      }
+    } catch (e) {
+      setPreviewError('预览失败: ' + e.message)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const handlePreviewFile = async (filePath, fileName) => {
+    if (!detailProject) return
+    try {
+      const res = await previewProjectFile(detailProject.id, filePath)
+      if (res.error) {
+        setPreviewFile({ path: filePath, name: fileName, content: '/* ' + res.error + ' */', language: 'plaintext' })
+      } else {
+        setPreviewFile({ path: res.path, name: res.name, content: res.content, language: res.language, size: res.size })
+      }
+    } catch (e) {
+      setPreviewFile({ path: filePath, name: fileName, content: '// 加载失败: ' + e.message, language: 'plaintext' })
+    }
+  }
+
+  const toggleDir = (dirPath) => {
+    setExpandedDirs(prev => {
+      const next = new Set(prev)
+      if (next.has(dirPath)) next.delete(dirPath)
+      else next.add(dirPath)
+      return next
+    })
+  }
+
+  // 渲染文件树节点
+  const renderTreeNode = (node, depth = 0) => {
+    const isDir = node.type === 'directory'
+    const isExpanded = expandedDirs.has(node.path)
+    const paddingLeft = 8 + depth * 18
+
+    return (
+      <div key={node.path || node.name}>
+        <div
+          className="tree-node"
+          style={{ paddingLeft, cursor: isDir ? 'pointer' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: '3px 0', fontSize: 12, borderRadius: 4 }}
+          onClick={() => {
+            if (isDir) {
+              toggleDir(node.path)
+            } else if (node.type === 'file') {
+              handlePreviewFile(node.path, node.name)
+            }
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+        >
+          <span style={{ width: 16, textAlign: 'center', flexShrink: 0 }}>
+            {isDir ? (isExpanded ? '📂' : '📁') : node.type === 'binary' ? '📦' : '📄'}
+          </span>
+          <span style={{
+            color: isDir ? '#1f2937' : '#4b5563',
+            fontWeight: isDir ? 600 : 400,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+          }}>
+            {node.name}
+          </span>
+          {!isDir && node.size !== undefined && (
+            <span style={{ color: '#9ca3af', fontSize: 10, marginLeft: 'auto', flexShrink: 0 }}>
+              {node.size < 1024 ? node.size + ' B' : node.size < 1048576 ? (node.size / 1024).toFixed(1) + ' KB' : (node.size / 1048576).toFixed(1) + ' MB'}
+            </span>
+          )}
+        </div>
+        {isDir && isExpanded && node.children && (
+          <div>{node.children.map(child => renderTreeNode(child, depth + 1))}</div>
+        )}
+      </div>
+    )
   }
 
   const handleTriggerBuild = async (pipeline) => {
@@ -255,26 +351,14 @@ export default function ProjectList() {
               <div style={{ marginTop: 12, borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontWeight: 600, fontSize: 14 }}>📁 工作目录</span>
-                  <div className="btn-group" style={{ gap: 6 }}>
-                    <button
-                      className="btn btn-outline btn-sm"
-                      onClick={handleCheckWorkspace}
-                      disabled={wsChecking}
-                      style={{ fontSize: 12 }}
-                    >
-                      {wsChecking ? '⏳ 检查中...' : '🔍 检查工作目录'}
-                    </button>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => {
-                        setDetailProject(null)
-                        navigate(`/projects/${detailProject.id}/files`)
-                      }}
-                      style={{ fontSize: 12 }}
-                    >
-                      📂 查看文件
-                    </button>
-                  </div>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={handleCheckWorkspace}
+                    disabled={wsChecking}
+                    style={{ fontSize: 12 }}
+                  >
+                    {wsChecking ? '⏳ 检查中...' : '🔍 检查工作目录'}
+                  </button>
                 </div>
 
                 {wsCheckResult && (
@@ -321,6 +405,56 @@ export default function ProjectList() {
               </div>
             </div>
 
+              {/* --- 代码预览 --- */}
+              <div style={{ marginTop: 12, borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>📂 代码预览</span>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={handlePreviewCode}
+                    disabled={previewLoading}
+                    style={{ fontSize: 12 }}
+                  >
+                    {previewLoading ? '⏳ 加载中...' : '👁 预览代码'}
+                  </button>
+                </div>
+
+                {previewError && (
+                  <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: 12 }}>
+                    ⚠️ {previewError}
+                  </div>
+                )}
+
+                {previewTree && (
+                  <div style={{ marginTop: 8, display: 'flex', gap: 0, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', maxHeight: 420 }}>
+                    {/* 文件树 */}
+                    <div style={{ width: 240, minWidth: 180, borderRight: '1px solid #e5e7eb', overflow: 'auto', background: '#fafbfc', padding: '4px 0' }}>
+                      {renderTreeNode(previewTree)}
+                    </div>
+                    {/* 文件内容 */}
+                    <div style={{ flex: 1, overflow: 'auto', background: '#1e1e1e' }}>
+                      {previewFile ? (
+                        <div style={{ fontSize: 12 }}>
+                          <div style={{ padding: '6px 12px', background: '#2d2d2d', color: '#ccc', fontSize: 11, borderBottom: '1px solid #444', display: 'flex', justifyContent: 'space-between', position: 'sticky', top: 0 }}>
+                            <span>{previewFile.name}</span>
+                            {previewFile.size !== undefined && (
+                              <span style={{ color: '#999' }}>
+                                {previewFile.size < 1024 ? previewFile.size + ' B' : (previewFile.size / 1024).toFixed(1) + ' KB'}
+                              </span>
+                            )}
+                          </div>
+                          <pre style={{ margin: 0, padding: '10px 14px', color: '#d4d4d4', fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace", lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', tabSize: 4 }}>{previewFile.content}</pre>
+                        </div>
+                      ) : (
+                        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', fontSize: 13 }}>
+                          ← 点击左侧文件查看内容
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
             <div className="detail-section">
               <h4>流水线 ({detailPipelines.length})</h4>
               {detailPipelines.length === 0 ? (
@@ -349,12 +483,9 @@ export default function ProjectList() {
                           <td>{pl.name}</td>
                           <td>{pl.trigger || 'MANUAL'}</td>
                           <td>
-                            {canTrigger && (
-                              <button className="btn btn-success btn-sm" onClick={() => handleTriggerBuild(pl)}>▶ 触发构建</button>
-                            )}
-                            {canManage && (
-                              <button className="btn btn-outline btn-sm" onClick={() => { setDetailProject(null); navigate(`/projects/${detailProject.id}/pipelines`) }}>🔧</button>
-                            )}
+                            <button className="btn btn-success btn-sm" onClick={() => handleTriggerBuild(pl)}>▶ 触发构建</button>
+                            {' '}
+                            <button className="btn btn-outline btn-sm" onClick={() => { setDetailProject(null); navigate(`/projects/${detailProject.id}/pipelines`) }}>🔧</button>
                           </td>
                         </tr>
                       ))}
