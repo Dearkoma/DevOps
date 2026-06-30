@@ -10,15 +10,27 @@
 ## ⚠️ 工作约定（用户明确要求，必须遵守）
 1. **"DevOps" = 本项目本身**。用户提到"DevOps"时即指这个毕业设计项目，不是泛指 DevOps 概念。
 2. **代码操作必须可恢复**。通过 git 保障：修改前确保工作区干净或先提交存档；提供修改方案时附带回退方式。
-3. **修改由用户执行**。AI 只提供修改方案/补丁/说明，不直接改代码文件；用户自己应用并验证（前端需 `npm run build` 后才生效）。
+3. **修改由用户执行**。AI 只提供修改方案/补丁/说明，不直接改代码文件；用户自己应用并验证。
+
+## 前端运行模式（2026-06-30 切换）
+- **当前模式：开发模式（npm run dev）**
+  - 终端 A：IDEA 跑 `DevOpsPlatformApplication`（8080，只做 API）
+  - 终端 B：`cd frontend && npm run dev`（3000，前端开发服务器 + 热更新）
+  - 浏览器访问 `localhost:3000`（不再是 8080）
+  - `/api` 和 `/ws` 已在 `vite.config.js` 代理到 8080，源码无需改
+  - 改前端源码保存即生效，不再需要 `npm run build`
+  - 首次访问 3000 需重新登录（localStorage 跨端口不共享）
+- **回退到 build 模式**：`cd frontend && npm run build` → 访问 8080
+- **历史坑**：用户多次踩"改前端不 build 导致修改不生效"，开发模式可根治此问题
 
 ## 可恢复机制
-- 项目已 git 初始化，提交历史可用。
-- 建议每次改代码前：`git stash` 或先 commit 当前状态；改完可 `git diff`/`git checkout -- <file>` 回退。
-- 前端改完必须 `cd frontend && npm run build`，产物自动落到后端 static 目录。
+- 项目已 git 初始化，基线提交 `8d2200f`（2026-06-30）。
+- 改代码前：`git stash` 或先 commit；改完可 `git diff`/`git checkout -- <file>` 回退。
+- 整体回退：`git reset --hard 8d2200f`。
 
 ## 关键路径速查
 - 配置：`devops-platform/src/main/resources/application.yml`（MySQL 密码在此改）
 - SQL 初始化：`devops-platform/sql/init.sql`
-- 前端构建：`cd frontend && npm run build`
+- 前端开发：`cd frontend && npm run dev` → 访问 `localhost:3000`
+- 前端构建（部署用）：`cd frontend && npm run build` → 产物自动落到后端 static 目录
 - 后端运行：IDEA 运行启动类，或 `java -jar target/devops-platform-1.0.0.jar`
