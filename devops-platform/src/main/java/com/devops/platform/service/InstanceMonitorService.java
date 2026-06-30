@@ -605,13 +605,24 @@ public class InstanceMonitorService {
         }
 
         // 将 ClusterIP 改为 NodePort
-        //   因为 Windows cmd 无法正确传递带引号的 JSON，改用 kubectl patch 的 strategic merge 方式
-        String patchJson = "{\"spec\":{\"type\":\"NodePort\"}}";
-        ProcessResult patchR = kubectl("patch", "svc", svcName, "-n", ns,
-                "--type", "merge", "-p", patchJson);
-        if (!patchR.success) {
+        //   写 JSON patch 到临时文件，用 --patch-file 传递，彻底避免命令行引号问题
+        java.nio.file.Path patchFile = null;
+        try {
+            patchFile = java.nio.file.Files.createTempFile("k8s-patch-", ".json");
+            java.nio.file.Files.writeString(patchFile, "{\"spec\":{\"type\":\"NodePort\"}}");
+            ProcessResult patchR = kubectl("patch", "svc", svcName, "-n", ns,
+                    "--type", "merge", "--patch-file", patchFile.toString());
+            if (!patchR.success) {
+                return Map.of("success", false, "error",
+                        "修改 Service 类型失败: " + patchR.output, "svcName", svcName);
+            }
+        } catch (Exception e) {
             return Map.of("success", false, "error",
-                    "修改 Service 类型失败: " + patchR.output, "svcName", svcName);
+                    "写入 patch 文件失败: " + e.getMessage(), "svcName", svcName);
+        } finally {
+            if (patchFile != null) {
+                try { java.nio.file.Files.deleteIfExists(patchFile); } catch (Exception ignored) {}
+            }
         }
 
         // 获取分配的 NodePort

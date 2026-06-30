@@ -22,6 +22,7 @@
   - 首次访问 3000 需重新登录（localStorage 跨端口不共享）
 - **回退到 build 模式**：`cd frontend && npm run build` → 访问 8080
 - **历史坑**：用户多次踩"改前端不 build 导致修改不生效"，开发模式可根治此问题
+- **⚠️ 开发模式下禁止跑 `npm run build`**：vite.config.js 的 outDir 指向 `../devops-platform/src/main/resources/static/`，一跑 build 就会重建 static/ 目录，导致 8080 又能直接访问前端页面，绕过登录限制。验证编译用 `npx vite build --outDir /tmp/check` 或直接看 HMR 是否报错。
 
 ## 可恢复机制
 - 当前最新提交 `6dc26eb`（2026-06-30 21:55）。
