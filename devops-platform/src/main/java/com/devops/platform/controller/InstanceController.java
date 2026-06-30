@@ -1,7 +1,10 @@
 package com.devops.platform.controller;
 
+import com.devops.platform.entity.Build;
 import com.devops.platform.entity.ServiceInstance;
+import com.devops.platform.repository.BuildRepository;
 import com.devops.platform.repository.ServiceInstanceRepository;
+import com.devops.platform.service.BuildService;
 import com.devops.platform.service.InstanceMonitorService;
 import com.devops.platform.service.K8sClientService;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,8 @@ public class InstanceController {
     private final InstanceMonitorService monitorService;
     private final ServiceInstanceRepository instanceRepository;
     private final K8sClientService k8sClientService;
+    private final BuildService buildService;
+    private final BuildRepository buildRepository;
 
     @GetMapping
     public List<ServiceInstance> getAll() {
@@ -120,7 +125,7 @@ public class InstanceController {
     }
 
     /**
-     * 获取实例容器日志（Docker / K8s）
+     * 获取实例容器日志（Docker / K8s）— 后台运行时日志
      * @param tail  获取最后 N 行日志（默认 200）
      */
     @GetMapping("/{id}/logs")
@@ -128,6 +133,39 @@ public class InstanceController {
             @PathVariable Long id,
             @RequestParam(defaultValue = "200") int tail) {
         Map<String, Object> result = monitorService.getContainerLogs(id, tail);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取实例的构建日志（前台构建日志）— 取该项目最新一次构建的完整日志
+     * 包含 npm install、npm run build（前端）、mvn package（后端）、docker build、k8s deploy 等步骤
+     */
+    @GetMapping("/{id}/build-logs")
+    public ResponseEntity<Map<String, Object>> getBuildLogs(@PathVariable Long id) {
+        ServiceInstance inst = instanceRepository.findById(id).orElse(null);
+        if (inst == null) {
+            return ResponseEntity.ok(Map.of("success", false, "error", "实例不存在"));
+        }
+
+        List<Build> builds = buildRepository.findByProjectIdOrderByStartTimeDesc(inst.getProjectId());
+        if (builds == null || builds.isEmpty()) {
+            return ResponseEntity.ok(Map.of("success", false, "error", "该项目暂无构建记录"));
+        }
+
+        Build latest = builds.get(0);
+        String log = buildService.getBuildLog(latest.getId());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("buildId", latest.getId());
+        result.put("buildNumber", latest.getBuildNumber());
+        result.put("buildStatus", latest.getStatus());
+        result.put("startTime", latest.getStartTime());
+        result.put("endTime", latest.getEndTime());
+        result.put("triggeredBy", latest.getTriggeredBy());
+        result.put("branch", latest.getBranch());
+        result.put("logs", log != null ? log : "(暂无日志)");
+        result.put("source", "构建 " + latest.getBuildNumber() + " · " + latest.getStatus());
         return ResponseEntity.ok(result);
     }
 

@@ -165,6 +165,7 @@ export const deleteInstance = (id) => request(`/instances/${id}`, { method: 'DEL
 export const getAccessInfo = (id) => request(`/instances/${id}/access-info`)
 export const exposeToExternal = (id) => request(`/instances/${id}/expose`, { method: 'POST' })
 export const getInstanceLogs = (id, tail = 200) => request(`/instances/${id}/logs?tail=${tail}`)
+export const getInstanceBuildLogs = (id) => request(`/instances/${id}/build-logs`)
 export const fetchAvailability = () => request('/instances/availability')
 export const fetchStatsByType = () => request('/instances/stats-by-type')
 export const fetchK8sDeployments = (namespace = 'devops') => request(`/instances/k8s/deployments?namespace=${namespace}`)
