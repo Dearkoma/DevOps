@@ -162,7 +162,7 @@ export default function AppLayout() {
                   >
                     <span className="icon">{icon}</span>
                     {label}
-                    {path === '/notifications' && <CountBadge count={badgeCounts[path]} />}
+                    <CountBadge count={badgeCounts[path]} />
                   </NavLink>
                 )}
               </div>
