@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.net.ServerSocket;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -464,7 +465,7 @@ public class InstanceMonitorService {
                         String externalUrl = String.format("http://localhost:%d", nodePort);
                         info.put("externalUrl", externalUrl);
                         info.put("externalPort", nodePort);
-                        info.put("externalLabel", "外部访问 (NodePort)");
+                    info.put("externalLabel", "已暴露 — NodePort " + nodePort + "（K8s 自动分配）");
                     }
                 } else {
                     info.put("externalExposed", false);
@@ -502,9 +503,11 @@ public class InstanceMonitorService {
         int port = inst.getPort() != null ? inst.getPort() : 8080;
 
         if (containerId == null) {
-            info.put("internalUrl", "容器未运行");
-            info.put("internalLabel", "无法获取访问地址");
+            // 容器未运行，但镜像已构建
+            info.put("internalUrl", "容器未运行（镜像: " + (inst.getImageName() != null ? inst.getImageName() : "未知") + "）");
+            info.put("internalLabel", "点击「一键部署到外部」可自动启动容器并分配端口");
             info.put("externalExposed", false);
+            info.put("externalLabel", "未暴露 — 点击下方按钮自动启动并分配端口");
             return;
         }
 
@@ -512,31 +515,33 @@ public class InstanceMonitorService {
         info.put("internalUrl", String.format("http://localhost:%d", port));
         info.put("internalLabel", "宿主机本地访问");
 
-        // 检查端口映射
-        String cmd = dockerCommand + " port " + containerId + " " + port;
-        ProcessResult r = runCommand(cmd);
+        // 检查所有端口映射
+        ProcessResult r = docker("port", containerId);
         if (r.success && !r.output.isBlank()) {
-            // 输出格式: "0.0.0.0:30080" 或 "[::]:30080"
-            String mapping = r.output.trim().split("\\R")[0];
-            String mappedPort = mapping.contains(":") ? mapping.substring(mapping.lastIndexOf(":") + 1) : "";
-            if (!mappedPort.isEmpty()) {
-                info.put("externalExposed", true);
-                info.put("externalUrl", String.format("http://localhost:%s", mappedPort));
-                info.put("externalPort", Integer.parseInt(mappedPort));
-                info.put("externalLabel", "已映射到宿主机端口");
-            } else {
-                info.put("externalExposed", false);
+            // 输出格式: "8080/tcp -> 0.0.0.0:30080" 或多行
+            String[] lines = r.output.trim().split("\\R");
+            for (String line : lines) {
+                if (line.contains(":")) {
+                    String mappedPort = line.substring(line.lastIndexOf(":") + 1).trim();
+                    try {
+                        int extPort = Integer.parseInt(mappedPort);
+                        info.put("externalExposed", true);
+                        info.put("externalUrl", String.format("http://localhost:%d", extPort));
+                        info.put("externalPort", extPort);
+                        info.put("externalLabel", "已映射到宿主机端口（系统自动分配）");
+                        return;
+                    } catch (NumberFormatException ignored) {}
+                }
             }
-        } else {
-            info.put("externalExposed", false);
-            info.put("externalLabel", "未映射宿主机端口（仅容器内部可访问）");
         }
+        info.put("externalExposed", false);
+        info.put("externalLabel", "未映射端口 — 点击「一键部署到外部」系统自动分配端口");
     }
 
     /**
      * 一键部署到外部（暴露服务为外部可访问）
-     * - K8s: 将 ClusterIP Service 改为 NodePort 类型
-     * - Docker: 如果容器未映射端口，提示用户重新创建容器
+     * - K8s: 将 ClusterIP Service 改为 NodePort 类型，K8s 自动分配端口
+     * - Docker: 系统自动分配空闲端口，停止旧容器并带 -p 端口映射重新启动
      */
     public Map<String, Object> exposeToExternal(Long id) {
         ServiceInstance inst = instanceRepository.findById(id).orElse(null);
@@ -556,10 +561,20 @@ public class InstanceMonitorService {
 
     /** 安全执行 kubectl 命令（ProcessBuilder 传参数组，避免 shell 引号解析问题） */
     private ProcessResult kubectl(String... args) {
+        return runWithProcessBuilder("kubectl", args);
+    }
+
+    /** 安全执行 docker 命令（ProcessBuilder 传参数组，避免 cmd.exe 引号/特殊字符问题） */
+    private ProcessResult docker(String... args) {
+        return runWithProcessBuilder(dockerCommand, args);
+    }
+
+    /** 通用 ProcessBuilder 命令执行（避免 shell 引号解析） */
+    private ProcessResult runWithProcessBuilder(String executable, String... args) {
         ProcessResult result = new ProcessResult();
         try {
             List<String> cmdList = new java.util.ArrayList<>();
-            cmdList.add("kubectl");
+            cmdList.add(executable);
             for (String a : args) cmdList.add(a);
             ProcessBuilder pb = new ProcessBuilder(cmdList);
             pb.redirectErrorStream(true);
@@ -569,7 +584,7 @@ public class InstanceMonitorService {
                 String line;
                 while ((line = reader.readLine()) != null) out.append(line).append("\n");
             }
-            boolean finished = proc.waitFor(10, TimeUnit.SECONDS);
+            boolean finished = proc.waitFor(15, TimeUnit.SECONDS);
             if (!finished) { proc.destroyForcibly(); result.success = false; result.output = "timeout"; return result; }
             result.output = out.toString().trim();
             result.success = proc.exitValue() == 0;
@@ -599,7 +614,7 @@ public class InstanceMonitorService {
             try { nodePort = Integer.parseInt(portR.output.trim()); }
             catch (NumberFormatException e) { /* ignore */ }
             return Map.of("success", true, "alreadyExposed", true,
-                    "message", "服务已暴露到外部",
+                    "message", "服务已暴露到外部（K8s 自动分配端口 " + nodePort + "）",
                     "externalUrl", String.format("http://localhost:%d", nodePort),
                     "nodePort", nodePort);
         }
@@ -632,36 +647,116 @@ public class InstanceMonitorService {
         catch (NumberFormatException e) { /* ignore */ }
 
         return Map.of("success", true, "alreadyExposed", false,
-                "message", "服务已暴露到外部，可通过 localhost:" + nodePort + " 访问",
+                "message", "服务已暴露到外部，K8s 自动分配端口 " + nodePort + "，可通过 localhost:" + nodePort + " 访问",
                 "externalUrl", String.format("http://localhost:%d", nodePort),
                 "nodePort", nodePort);
     }
 
     private Map<String, Object> exposeDockerToExternal(ServiceInstance inst) {
+        int containerPort = inst.getPort() != null ? inst.getPort() : 8080;
+        String containerName = inst.getInstanceName();
+
+        // 1. 尝试查找已有容器
         String containerId = resolveDockerContainerId(inst);
-        if (containerId == null) {
-            return Map.of("success", false, "error", "未找到运行中的容器");
+
+        // 2. 如果容器存在，检查是否已有端口映射
+        if (containerId != null) {
+            ProcessResult portCheck = docker("port", containerId, String.valueOf(containerPort));
+            if (portCheck.success && !portCheck.output.isBlank()) {
+                String mapping = portCheck.output.trim().split("\\R")[0];
+                String mappedPort = mapping.contains(":") ? mapping.substring(mapping.lastIndexOf(":") + 1) : "";
+                if (!mappedPort.isEmpty()) {
+                    return Map.of("success", true, "alreadyExposed", true,
+                            "message", "容器已映射端口到宿主机（端口 " + mappedPort + "）",
+                            "externalUrl", String.format("http://localhost:%s", mappedPort),
+                            "externalPort", Integer.parseInt(mappedPort));
+                }
+            }
         }
 
-        int port = inst.getPort() != null ? inst.getPort() : 8080;
-
-        // 检查是否已有端口映射
-        String cmd = dockerCommand + " port " + containerId + " " + port;
-        ProcessResult r = runCommand(cmd);
-        if (r.success && !r.output.isBlank()) {
-            String mapping = r.output.trim().split("\\R")[0];
-            String mappedPort = mapping.contains(":") ? mapping.substring(mapping.lastIndexOf(":") + 1) : "";
-            return Map.of("success", true, "alreadyExposed", true,
-                    "message", "容器已映射端口到宿主机",
-                    "externalUrl", String.format("http://localhost:%s", mappedPort),
-                    "externalPort", mappedPort);
+        // 3. 系统自动分配一个空闲端口（避免端口冲突）
+        int freePort = findFreePort(30000, 32767);
+        if (freePort == -1) {
+            return Map.of("success", false, "error", "系统无法找到可用的宿主机端口（30000-32767 范围均已占用）");
         }
 
-        // Docker 运行中的容器无法直接添加端口映射，给出指引
-        return Map.of("success", false, "error",
-                "Docker 运行中的容器无法直接添加端口映射。请通过以下方式暴露：\n"
-                + "1. 停止容器后重新运行并添加 -p " + port + ":" + port + " 参数\n"
-                + "2. 或使用反向代理（如 Traefik/Nginx）将流量转发到容器内部 " + port + " 端口");
+        // 4. 获取镜像名
+        String imageName = inst.getImageName() + ":" + (inst.getImageTag() != null ? inst.getImageTag() : "latest");
+
+        // 5. 如果容器已存在但无端口映射 → 停止旧容器并带端口重新启动
+        if (containerId != null) {
+            log.info("Docker 容器 [{}] 无端口映射，停止后重新启动并映射端口", containerName);
+            docker("stop", containerId);
+            docker("rm", containerId);
+        }
+
+        // 6. 启动新容器（带端口映射），使用 ProcessBuilder 避免 cmd.exe 引号问题
+        List<String> runArgs = new java.util.ArrayList<>();
+        runArgs.add("run");
+        runArgs.add("-d");
+        runArgs.add("--name");
+        runArgs.add(containerName);
+        runArgs.add("-p");
+        runArgs.add(freePort + ":" + containerPort);
+
+        // Java 项目注入 MySQL 环境变量
+        if (inst.getDeployType() != null && !"Node.js".equalsIgnoreCase(inst.getDeployType())) {
+            runArgs.add("-e");
+            runArgs.add("SPRING_DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/devops_platform?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true");
+            runArgs.add("-e");
+            runArgs.add("SPRING_DATASOURCE_USERNAME=root");
+            runArgs.add("-e");
+            runArgs.add("SPRING_DATASOURCE_PASSWORD=Dearkoma.962464");
+        }
+
+        runArgs.add(imageName);
+        ProcessResult runR = docker(runArgs.toArray(new String[0]));
+
+        if (!runR.success) {
+            return Map.of("success", false, "error",
+                    "启动容器失败: " + runR.output);
+        }
+
+        // 7. 更新实例的 containerId
+        String newContainerId = runR.output.trim();
+        inst.setContainerId(newContainerId);
+        inst.setStatus("RUNNING");
+        inst.setHealthStatus("HEALTHY");
+        inst.setLastHeartbeat(LocalDateTime.now());
+        instanceRepository.save(inst);
+
+        log.info("Docker 容器 [{}] 已启动，端口映射 {}:{} → 宿主机:{}", containerName, containerName, containerPort, freePort);
+
+        return Map.of("success", true, "alreadyExposed", false,
+                "message", "服务已暴露到外部，系统自动分配端口 " + freePort + "，可通过 localhost:" + freePort + " 访问",
+                "externalUrl", String.format("http://localhost:%d", freePort),
+                "externalPort", freePort);
+    }
+
+    /**
+     * 在指定范围内查找一个空闲端口（系统自动分配，避免端口冲突）
+     * 使用 Java ServerSocket 尝试绑定，能绑定说明端口空闲
+     */
+    private int findFreePort(int minPort, int maxPort) {
+        // 优先让 OS 自动分配一个端口（最可靠）
+        try (ServerSocket socket = new ServerSocket(0)) {
+            int osPort = socket.getLocalPort();
+            if (osPort >= minPort && osPort <= maxPort) {
+                return osPort;
+            }
+        } catch (Exception e) {
+            log.debug("OS 自动分配端口失败: {}", e.getMessage());
+        }
+
+        // 在指定范围内扫描
+        for (int port = minPort; port <= maxPort; port++) {
+            try (ServerSocket socket = new ServerSocket(port)) {
+                return port;
+            } catch (Exception e) {
+                // 端口被占用，继续尝试下一个
+            }
+        }
+        return -1;
     }
 
     // ==================== 实例操作：重启 / 停止 / 删除 ====================
