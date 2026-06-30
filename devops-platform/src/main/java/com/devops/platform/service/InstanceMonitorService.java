@@ -617,10 +617,17 @@ public class InstanceMonitorService {
     private void collectK8sLogs(ServiceInstance inst, int tail, Map<String, Object> result) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
 
+        // 搜索词：用 instanceName 去掉 -k8s/-docker 后缀（Pod 名是 proj-xxx-<rs-hash>-<pod-hash>）
+        String searchTerm = inst.getInstanceName();
+        if (searchTerm != null) {
+            searchTerm = searchTerm.replaceAll("-(k8s|docker)$", "");
+        }
+
         // 始终实时解析当前 Pod 名（存储的 k8sPodName 可能已过期——Pod 重建后名字会变）
-        String searchTerm = (inst.getProjectName() != null && !inst.getProjectName().isBlank())
-                ? inst.getProjectName() : inst.getInstanceName();
-        String podName = resolveK8sPodNameAllPhases(ns, searchTerm);
+        String podName = null;
+        if (searchTerm != null && !searchTerm.isBlank()) {
+            podName = resolveK8sPodNameAllPhases(ns, searchTerm);
+        }
 
         // 如果实时解析失败，回退到存储的 Pod 名（可能仍然有效）
         if (podName == null || podName.isBlank()) {
