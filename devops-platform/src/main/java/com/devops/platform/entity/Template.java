@@ -28,7 +28,7 @@ public class Template {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(nullable = false, columnDefinition = "LONGTEXT")
+    @Column(columnDefinition = "LONGTEXT")
     private String content;  // 模板内容
 
     @Column(length = 50)
