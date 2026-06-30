@@ -403,6 +403,212 @@ public class InstanceMonitorService {
         try { return Integer.parseInt(s); } catch (NumberFormatException e) { return 0; }
     }
 
+    // ==================== 实例访问信息与外部部署 ====================
+
+    /**
+     * 获取实例的访问信息（内部链接 + 外部访问状态）
+     * - K8s:  内部 ClusterIP Service URL；外部 NodePort（如有）
+     * - Docker: 内部 localhost:端口；外部端口映射信息
+     */
+    public Map<String, Object> getAccessInfo(Long id) {
+        ServiceInstance inst = instanceRepository.findById(id).orElse(null);
+        if (inst == null) return Map.of("success", false, "error", "实例不存在");
+
+        Map<String, Object> info = new LinkedHashMap<>();
+        info.put("success", true);
+        info.put("instanceName", inst.getInstanceName());
+        info.put("deployType", inst.getDeployType());
+        info.put("status", inst.getStatus());
+
+        if ("K8S".equals(inst.getDeployType())) {
+            buildK8sAccessInfo(inst, info);
+        } else {
+            buildDockerAccessInfo(inst, info);
+        }
+        return info;
+    }
+
+    private void buildK8sAccessInfo(ServiceInstance inst, Map<String, Object> info) {
+        String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
+        String svcName = inst.getInstanceName() + "-svc";
+        int port = inst.getPort() != null ? inst.getPort() : 8080;
+
+        // 内部链接：ClusterIP 服务地址
+        String internalUrl = String.format("http://%s.%s.svc.cluster.local:%d", svcName, ns, port);
+        info.put("internalUrl", internalUrl);
+        info.put("internalLabel", "集群内部访问");
+
+        // 检查当前 Service 状态（是否已有 NodePort）
+        String cmd = String.format("kubectl get svc %s -n %s -o json 2>&1", svcName, ns);
+        ProcessResult r = runCommand(cmd);
+
+        if (r.success && !r.output.contains("NotFound") && !r.output.contains("Error")) {
+            try {
+                // 简单解析 type 和 nodePort
+                if (r.output.contains("\"NodePort\"") || r.output.contains("\"LoadBalancer\"")) {
+                    // 已暴露到外部
+                    info.put("externalExposed", true);
+
+                    // 尝试获取 nodePort
+                    int nodePort = extractNodePort(r.output);
+                    if (nodePort > 0) {
+                        String externalUrl = String.format("http://localhost:%d", nodePort);
+                        info.put("externalUrl", externalUrl);
+                        info.put("externalPort", nodePort);
+                        info.put("externalLabel", "外部访问 (NodePort)");
+                    }
+                } else {
+                    info.put("externalExposed", false);
+                    info.put("externalLabel", "未暴露（仅集群内部可访问）");
+                }
+            } catch (Exception e) {
+                info.put("externalExposed", false);
+                info.put("externalLabel", "状态获取失败");
+            }
+        } else {
+            info.put("externalExposed", false);
+            info.put("externalLabel", "Service 未找到");
+        }
+    }
+
+    private int extractNodePort(String jsonOutput) {
+        // 从 kubectl 输出中提取 nodePort 数字
+        int idx = jsonOutput.indexOf("\"nodePort\"");
+        if (idx < 0) return -1;
+        // nodePort 后跟 : 一个数字
+        int colon = jsonOutput.indexOf(":", idx);
+        if (colon < 0) return -1;
+        String sub = jsonOutput.substring(colon + 1).trim();
+        // 跳过空格和引号
+        StringBuilder num = new StringBuilder();
+        for (char c : sub.toCharArray()) {
+            if (Character.isDigit(c)) num.append(c);
+            else if (num.length() > 0) break;
+        }
+        try { return Integer.parseInt(num.toString()); } catch (NumberFormatException e) { return -1; }
+    }
+
+    private void buildDockerAccessInfo(ServiceInstance inst, Map<String, Object> info) {
+        String containerId = resolveDockerContainerId(inst);
+        int port = inst.getPort() != null ? inst.getPort() : 8080;
+
+        if (containerId == null) {
+            info.put("internalUrl", "容器未运行");
+            info.put("internalLabel", "无法获取访问地址");
+            info.put("externalExposed", false);
+            return;
+        }
+
+        // 内部：容器可直接通过 localhost:port 访问（在宿主机上）
+        info.put("internalUrl", String.format("http://localhost:%d", port));
+        info.put("internalLabel", "宿主机本地访问");
+
+        // 检查端口映射
+        String cmd = dockerCommand + " port " + containerId + " " + port;
+        ProcessResult r = runCommand(cmd);
+        if (r.success && !r.output.isBlank()) {
+            // 输出格式: "0.0.0.0:30080" 或 "[::]:30080"
+            String mapping = r.output.trim().split("\\R")[0];
+            String mappedPort = mapping.contains(":") ? mapping.substring(mapping.lastIndexOf(":") + 1) : "";
+            if (!mappedPort.isEmpty()) {
+                info.put("externalExposed", true);
+                info.put("externalUrl", String.format("http://localhost:%s", mappedPort));
+                info.put("externalPort", Integer.parseInt(mappedPort));
+                info.put("externalLabel", "已映射到宿主机端口");
+            } else {
+                info.put("externalExposed", false);
+            }
+        } else {
+            info.put("externalExposed", false);
+            info.put("externalLabel", "未映射宿主机端口（仅容器内部可访问）");
+        }
+    }
+
+    /**
+     * 一键部署到外部（暴露服务为外部可访问）
+     * - K8s: 将 ClusterIP Service 改为 NodePort 类型
+     * - Docker: 如果容器未映射端口，提示用户重新创建容器
+     */
+    public Map<String, Object> exposeToExternal(Long id) {
+        ServiceInstance inst = instanceRepository.findById(id).orElse(null);
+        if (inst == null) return Map.of("success", false, "error", "实例不存在");
+
+        try {
+            if ("K8S".equals(inst.getDeployType())) {
+                return exposeK8sToExternal(inst);
+            } else {
+                return exposeDockerToExternal(inst);
+            }
+        } catch (Exception e) {
+            log.error("外部部署失败 [{}]: {}", inst.getInstanceName(), e.getMessage());
+            return Map.of("success", false, "error", "外部部署失败: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> exposeK8sToExternal(ServiceInstance inst) {
+        String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
+        String svcName = inst.getInstanceName() + "-svc";
+
+        // 先检查是否已经是 NodePort
+        String checkCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.type}'", svcName, ns);
+        ProcessResult check = runCommand(checkCmd);
+        if (check.success && "NodePort".equals(check.output.trim())) {
+            // 已经是 NodePort，获取端口
+            String portCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.ports[0].nodePort}'", svcName, ns);
+            ProcessResult portR = runCommand(portCmd);
+            int nodePort = portR.success ? Integer.parseInt(portR.output.trim()) : -1;
+            return Map.of("success", true, "alreadyExposed", true,
+                    "message", "服务已暴露到外部",
+                    "externalUrl", String.format("http://localhost:%d", nodePort),
+                    "nodePort", nodePort);
+        }
+
+        // 将 ClusterIP 改为 NodePort
+        String patchCmd = String.format(
+                "kubectl patch svc %s -n %s -p '{\"spec\":{\"type\":\"NodePort\"}}'", svcName, ns);
+        ProcessResult patchR = runCommand(patchCmd);
+        if (!patchR.success) {
+            return Map.of("success", false, "error", "修改 Service 类型失败", "output", patchR.errorOutput);
+        }
+
+        // 获取分配的 NodePort
+        String portCmd = String.format("kubectl get svc %s -n %s -o jsonpath='{.spec.ports[0].nodePort}'", svcName, ns);
+        ProcessResult portR = runCommand(portCmd);
+        int nodePort = portR.success ? Integer.parseInt(portR.output.trim()) : -1;
+
+        return Map.of("success", true, "alreadyExposed", false,
+                "message", "服务已暴露到外部，可通过 localhost:" + nodePort + " 访问",
+                "externalUrl", String.format("http://localhost:%d", nodePort),
+                "nodePort", nodePort);
+    }
+
+    private Map<String, Object> exposeDockerToExternal(ServiceInstance inst) {
+        String containerId = resolveDockerContainerId(inst);
+        if (containerId == null) {
+            return Map.of("success", false, "error", "未找到运行中的容器");
+        }
+
+        int port = inst.getPort() != null ? inst.getPort() : 8080;
+
+        // 检查是否已有端口映射
+        String cmd = dockerCommand + " port " + containerId + " " + port;
+        ProcessResult r = runCommand(cmd);
+        if (r.success && !r.output.isBlank()) {
+            String mapping = r.output.trim().split("\\R")[0];
+            String mappedPort = mapping.contains(":") ? mapping.substring(mapping.lastIndexOf(":") + 1) : "";
+            return Map.of("success", true, "alreadyExposed", true,
+                    "message", "容器已映射端口到宿主机",
+                    "externalUrl", String.format("http://localhost:%s", mappedPort),
+                    "externalPort", mappedPort);
+        }
+
+        // Docker 运行中的容器无法直接添加端口映射，给出指引
+        return Map.of("success", false, "error",
+                "Docker 运行中的容器无法直接添加端口映射。请通过以下方式暴露：\n"
+                + "1. 停止容器后重新运行并添加 -p " + port + ":" + port + " 参数\n"
+                + "2. 或使用反向代理（如 Traefik/Nginx）将流量转发到容器内部 " + port + " 端口");
+    }
+
     // ==================== 实例操作：重启 / 停止 / 删除 ====================
 
     /**

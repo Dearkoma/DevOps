@@ -5,7 +5,8 @@ import {
   fetchInstances, fetchInstanceStats, fetchStatsByType,
   fetchAvailability, fetchK8sStatus, reconnectK8s,
   deleteInstance, restartInstance, stopInstance,
-  fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment
+  fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment,
+  getAccessInfo, exposeToExternal
 } from '../api'
 
 function useActivePage() {
@@ -29,6 +30,12 @@ export default function InstanceList() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [restartTarget, setRestartTarget] = useState(null)
   const [stopTarget, setStopTarget] = useState(null)
+
+  // 展开行：访问信息
+  const [expandedId, setExpandedId] = useState(null)
+  const [accessInfo, setAccessInfo] = useState(null)
+  const [accessLoading, setAccessLoading] = useState(false)
+  const [exposingId, setExposingId] = useState(null)
 
   // K8s Deployments
   const [deployments, setDeployments] = useState([])
@@ -112,9 +119,32 @@ export default function InstanceList() {
     catch (e) { alert('删除 K8s Deployment 失败：' + e.message) }
   }
 
+  // 展开/收起访问信息
+  const handleToggleRow = async (inst) => {
+    if (expandedId === inst.id) { setExpandedId(null); setAccessInfo(null); return }
+    setExpandedId(inst.id)
+    setAccessLoading(true)
+    try { setAccessInfo(await getAccessInfo(inst.id)) }
+    catch (e) { setAccessInfo({ success: false, error: e.message }) }
+    finally { setAccessLoading(false) }
+  }
+
+  // 一键部署到外部
+  const handleExpose = async (id) => {
+    setExposingId(id)
+    try {
+      const r = await exposeToExternal(id)
+      alert(r?.message || (r?.success ? '暴露成功' : '操作失败'))
+      if (r?.success) loadAll()
+    } catch (e) { alert('外部部署失败: ' + e.message) }
+    finally { setExposingId(null) }
+  }
+
   if (loading && !dockerStatus && !k8sStatus) return <div className="empty-state"><div className="spinner" /></div>
 
-  const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, restartTarget, setRestartTarget, handleRestartInstance, stopTarget, setStopTarget, handleStopInstance, canManage, loadAll }
+  const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, restartTarget, setRestartTarget, handleRestartInstance, stopTarget, setStopTarget, handleStopInstance, canManage, loadAll,
+    expandedId, accessInfo, accessLoading, exposingId,
+    onToggleRow: handleToggleRow, onExpose: handleExpose }
 
   return (
     <>
@@ -246,7 +276,7 @@ function DeleteDeploymentModal({ target, namespace, onClose, onConfirm }) {
 }
 
 // ==================== 页面视图 ====================
-function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, loadAll }) {
+function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose }) {
   return (
     <>
       <div className="page-header">
@@ -254,12 +284,13 @@ function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget,
         <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 刷新</button>
       </div>
       {stats && <StatsRow stats={stats} />}
-      <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} />
+      <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
+        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose} />
     </>
   )
 }
 
-function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, loadAll }) {
+function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose }) {
   const dStats = statsByType?.docker
   return (
     <>
@@ -277,7 +308,8 @@ function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarge
         </div>
       )}
       {dStats && <TypeStats summary={dStats} label="Docker" />}
-      <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} />
+      <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
+        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose} />
     </>
   )
 }
@@ -288,6 +320,7 @@ function K8sView({
   depDetail, setDepDetail, depDetailLoading, viewDepDetail,
   deleteDepTarget, setDeleteDepTarget, handleDeleteDeployment,
   setDeleteTarget, setRestartTarget, setStopTarget, loadAll, canManage,
+  expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose,
 }) {
   const kStats = statsByType?.k8s
   return (
@@ -303,7 +336,8 @@ function K8sView({
         extra={k8sStatus?.connected && k8sStatus?.pods?.length > 0 && <PodList pods={k8sStatus.pods} count={k8sStatus.podCount} />}
       />
       {kStats && <TypeStats summary={kStats} label="K8s" />}
-      <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} />
+      <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
+        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose} />
       {k8sStatus?.connected && <DeploymentPanel
         deployments={deployments} depLoading={depLoading}
         depNamespace={depNamespace} setDepNamespace={setDepNamespace} loadDeployments={loadDeployments}
@@ -370,7 +404,7 @@ function PodList({ pods, count }) {
   )
 }
 
-function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget }) {
+function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose }) {
   if (instances.length === 0) return (
     <div className="card"><div className="empty-state"><div className="icon">📦</div><p>暂无服务实例</p><p style={{ fontSize: 12 }}>构建并部署后，服务实例将自动注册</p></div></div>
   )
@@ -380,6 +414,7 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
         <table>
           <thead>
             <tr>
+              <th style={{ width: 30 }}></th>
               <th>实例名称</th><th>项目</th>
               {showType && <th>部署类型</th>}
               <th>状态</th><th>健康</th><th>镜像</th><th>CPU</th><th>内存</th><th>最后心跳</th><th>操作</th>
@@ -387,33 +422,102 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
           </thead>
           <tbody>
             {instances.map(inst => (
-              <tr key={inst.id}>
-                <td style={{ fontWeight: 600 }}>{inst.instanceName}</td>
-                <td style={{ color: '#6b7280' }}>{inst.projectName || `#${inst.projectId}`}</td>
-                {showType && (
-                  <td><span className={`badge ${inst.deployType === 'K8S' ? 'badge-admin' : 'badge-developer'}`} style={{ fontSize: 11 }}>{inst.deployType === 'K8S' ? '☸️ K8s' : '🐳 Docker'}</span></td>
+              <React.Fragment key={inst.id}>
+                <tr onClick={() => onToggleRow(inst)} style={{ cursor: 'pointer' }}>
+                  <td style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+                    {expandedId === inst.id ? '▼' : '▶'}
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{inst.instanceName}</td>
+                  <td style={{ color: '#6b7280' }}>{inst.projectName || `#${inst.projectId}`}</td>
+                  {showType && (
+                    <td><span className={`badge ${inst.deployType === 'K8S' ? 'badge-admin' : 'badge-developer'}`} style={{ fontSize: 11 }}>{inst.deployType === 'K8S' ? '☸️ K8s' : '🐳 Docker'}</span></td>
+                  )}
+                  <td><BadgeStatus val={inst.status} /></td>
+                  <td><BadgeHealth val={inst.healthStatus} /></td>
+                  <td style={{ fontSize: 12 }}>{inst.imageName}:{inst.imageTag || 'latest'}</td>
+                  <td>{inst.cpuUsage != null ? inst.cpuUsage.toFixed(1) + '%' : '-'}</td>
+                  <td>{inst.memoryUsage != null ? inst.memoryUsage.toFixed(0) + 'MB' : '-'}</td>
+                  <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <div className="btn-group">
+                      <button className="btn btn-outline btn-sm" onClick={() => setRestartTarget(inst)}
+                        title={inst.status !== 'RUNNING' ? '实例状态异常，尝试重启恢复' : '重启实例'}>
+                        🔄 重启
+                      </button>
+                      {(inst.status === 'RUNNING' || inst.status === 'UNKNOWN') && (
+                        <button className="btn btn-outline btn-sm" style={{ color: '#f59e0b', borderColor: '#f59e0b' }} onClick={() => setStopTarget(inst)}>⏹ 停止</button>
+                      )}
+                      <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(inst)}>🗑 删除</button>
+                    </div>
+                  </td>
+                </tr>
+                {/* 展开行：访问信息 */}
+                {expandedId === inst.id && (
+                  <tr>
+                    <td colSpan={showType ? 11 : 10} style={{ background: '#f9fafb', padding: 0 }}>
+                      <div style={{ padding: '14px 20px', borderTop: '2px solid #6366f1' }}>
+                        {accessLoading ? (
+                          <div style={{ textAlign: 'center', padding: 12 }}><div className="spinner" /></div>
+                        ) : accessInfo?.success === false ? (
+                          <div style={{ color: '#ef4444', fontSize: 13 }}>❌ {accessInfo.error}</div>
+                        ) : accessInfo ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+                            {/* 内部链接 */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>🔗 内部链接：</span>
+                              <code style={{
+                                background: '#e5e7eb', padding: '4px 10px', borderRadius: 6,
+                                fontSize: 13, color: '#111827', fontWeight: 500
+                              }}>{accessInfo.internalUrl || '-'}</code>
+                              <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                                onClick={() => { navigator.clipboard.writeText(accessInfo.internalUrl); alert('已复制内部链接') }}>
+                                📋 复制
+                              </button>
+                            </div>
+
+                            {/* 分隔 */}
+                            <div style={{ width: 1, height: 24, background: '#d1d5db' }} />
+
+                            {/* 外部访问状态 */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>
+                                {accessInfo.externalExposed ? '🌐' : '🔒'} 外部访问：
+                              </span>
+                              {accessInfo.externalExposed ? (
+                                <>
+                                  <code style={{
+                                    background: '#dcfce7', padding: '4px 10px', borderRadius: 6,
+                                    fontSize: 13, color: '#166534', fontWeight: 500
+                                  }}>{accessInfo.externalUrl}</code>
+                                  {accessInfo.externalPort && (
+                                    <span className="badge badge-success" style={{ fontSize: 11 }}>端口 {accessInfo.externalPort}</span>
+                                  )}
+                                  <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                                    onClick={() => { navigator.clipboard.writeText(accessInfo.externalUrl); alert('已复制外部链接') }}>
+                                    📋 复制
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <span style={{ fontSize: 12, color: '#9ca3af' }}>{accessInfo.externalLabel || '未暴露'}</span>
+                                  <button
+                                    className="btn btn-primary btn-sm"
+                                    style={{ fontSize: 11, padding: '3px 10px', marginLeft: 4 }}
+                                    onClick={(e) => { e.stopPropagation(); onExpose(inst.id) }}
+                                    disabled={exposingId === inst.id}
+                                  >
+                                    {exposingId === inst.id ? '⏳ 部署中...' : '🚀 一键部署到外部'}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
                 )}
-                <td><BadgeStatus val={inst.status} /></td>
-                <td><BadgeHealth val={inst.healthStatus} /></td>
-                <td style={{ fontSize: 12 }}>{inst.imageName}:{inst.imageTag || 'latest'}</td>
-                <td>{inst.cpuUsage != null ? inst.cpuUsage.toFixed(1) + '%' : '-'}</td>
-                <td>{inst.memoryUsage != null ? inst.memoryUsage.toFixed(0) + 'MB' : '-'}</td>
-                <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
-                <td>
-                  <div className="btn-group">
-                    {/* 重启：任何状态都可以尝试重启恢复 */}
-                    <button className="btn btn-outline btn-sm" onClick={() => setRestartTarget(inst)}
-                      title={inst.status !== 'RUNNING' ? '实例状态异常，尝试重启恢复' : '重启实例'}>
-                      🔄 重启
-                    </button>
-                    {/* 停止：仅运行中或未知状态可尝试停止 */}
-                    {(inst.status === 'RUNNING' || inst.status === 'UNKNOWN') && (
-                      <button className="btn btn-outline btn-sm" style={{ color: '#f59e0b', borderColor: '#f59e0b' }} onClick={() => setStopTarget(inst)}>⏹ 停止</button>
-                    )}
-                    <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(inst)}>🗑 删除</button>
-                  </div>
-                </td>
-              </tr>
+              </React.Fragment>
             ))}
           </tbody>
         </table>

@@ -91,6 +91,24 @@ public class InstanceController {
     }
 
     /**
+     * 获取实例访问信息（内部链接 + 外部部署状态）
+     */
+    @GetMapping("/{id}/access-info")
+    public ResponseEntity<Map<String, Object>> getAccessInfo(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.getAccessInfo(id);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 一键部署到外部（K8s → NodePort，Docker → 端口映射检查）
+     */
+    @PostMapping("/{id}/expose")
+    public ResponseEntity<Map<String, Object>> exposeToExternal(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.exposeToExternal(id);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
      * K8s 连通性检测
      * 使用 Kubernetes Java Client 连接集群，检查是否可用，并拉取 Pod 列表
      */
