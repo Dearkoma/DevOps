@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
 import { fetchUsers, createUser, updateUser, deleteUser } from '../api'
 
 const ROLES = ['ADMIN', 'MANAGER', 'DEVELOPER', 'VIEWER']
@@ -11,8 +9,6 @@ const DEFAULT_FORM = {
 }
 
 export default function UserManagement() {
-  const { isAdmin, user: currentUser } = useAuth()
-  const navigate = useNavigate()
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -20,20 +16,13 @@ export default function UserManagement() {
   const [form, setForm] = useState(DEFAULT_FORM)
   const [search, setSearch] = useState('')
 
-  // 非 ADMIN 禁止访问
-  useEffect(() => {
-    if (!isAdmin) {
-      navigate('/', { replace: true })
-    }
-  }, [isAdmin, navigate])
-
   const load = useCallback(async () => {
     setLoading(true)
     try { setUsers(await fetchUsers()) } catch (e) { console.error(e) }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { if (isAdmin) load() }, [isAdmin, load])
+  useEffect(() => { load() }, [load])
 
   const openNew = () => {
     setEditing(null)
@@ -97,7 +86,7 @@ export default function UserManagement() {
             onChange={e => setSearch(e.target.value)}
             style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
           />
-          {isAdmin && <button className="btn btn-primary" onClick={openNew}>+ 新建用户</button>}
+          <button className="btn btn-primary" onClick={openNew}>+ 新建用户</button>
         </div>
       </div>
 
@@ -110,12 +99,12 @@ export default function UserManagement() {
                 <th>邮箱</th>
                 <th>角色</th>
                 <th>创建时间</th>
-                {isAdmin && <th>操作</th>}
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={isAdmin ? 5 : 4} style={{ textAlign: 'center', padding: 32, color: '#9ca3af' }}>暂无用户数据</td></tr>
+                <tr><td colSpan={5} style={{ textAlign: 'center', padding: 32, color: '#9ca3af' }}>暂无用户数据</td></tr>
               ) : (
                 filtered.map(u => (
                   <tr key={u.id}>
@@ -123,16 +112,12 @@ export default function UserManagement() {
                     <td style={{ color: '#6b7280' }}>{u.email || '-'}</td>
                     <td><span className={`badge ${getRoleBadge(u.role)}`}>{ROLE_LABELS[u.role] || u.role}</span></td>
                     <td style={{ color: '#9ca3af', fontSize: 12 }}>{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '-'}</td>
-                    {isAdmin && (
-                      <td>
-                        <div className="btn-group">
-                          <button className="btn btn-outline btn-sm" onClick={() => openEdit(u)}>✏️</button>
-                          {u.id !== currentUser?.id && (
-                            <button className="btn btn-danger btn-sm" onClick={() => handleDelete(u)}>🗑</button>
-                          )}
-                        </div>
-                      </td>
-                    )}
+                    <td>
+                      <div className="btn-group">
+                        <button className="btn btn-outline btn-sm" onClick={() => openEdit(u)}>✏️</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(u)}>🗑</button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}

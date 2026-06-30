@@ -10,7 +10,7 @@
 ## ⚠️ 工作约定（用户明确要求，必须遵守）
 1. **"DevOps" / "D项目" = 本项目本身**。用户提到"DevOps"或"D项目"时即指这个毕业设计项目，不是泛指 DevOps 概念。
 2. **代码操作必须可恢复**。通过 git 保障：修改前确保工作区干净或先提交存档；提供修改方案时附带回退方式。
-3. **修改由用户执行**。AI 只提供修改方案/补丁/说明，不直接改代码文件；用户自己应用并验证。
+3. **修改可由 AI 直接执行**（2026-06-30 更新）。AI 可以直接改代码/文件并 git 提交。用户通过 IDEA 运行后端。
 
 ## 前端运行模式（2026-06-30 切换）
 - **当前模式：开发模式（npm run dev）**
@@ -24,9 +24,9 @@
 - **历史坑**：用户多次踩"改前端不 build 导致修改不生效"，开发模式可根治此问题
 
 ## 可恢复机制
-- 项目已 git 初始化，基线提交 `8d2200f`（2026-06-30）。
+- 当前最新提交 `6dc26eb`（2026-06-30 21:55）。
 - 改代码前：`git stash` 或先 commit；改完可 `git diff`/`git checkout -- <file>` 回退。
-- 整体回退：`git reset --hard 8d2200f`。
+- 整体回退：`git reset --hard 6dc26eb`。
 
 ## 关键路径速查
 - 配置：`devops-platform/src/main/resources/application.yml`（MySQL 密码在此改）
@@ -34,3 +34,12 @@
 - 前端开发：`cd frontend && npm run dev` → 访问 `localhost:3000`
 - 前端构建（部署用）：`cd frontend && npm run build` → 产物自动落到后端 static 目录
 - 后端运行：IDEA 运行启动类，或 `java -jar target/devops-platform-1.0.0.jar`
+- **Maven 构建**（CLI）：需用 PowerShell + 设置 JAVA_HOME 后运行，因系统 Maven 损坏，可用缓存版本：
+  ```
+  $env:JAVA_HOME = "E:\Program Files\Java\jdk-21"
+  & "C:\Users\Dearkoma\.m2\wrapper\dists\apache-maven-3.9.6-bin\3a2c146e\apache-maven-3.9.6\bin\mvn.cmd" package -DskipTests
+  ```
+- **MySQL 操作**（CLI）：可通过 Python venv + pymysql：
+  ```
+  /c/Users/Dearkoma/.workbuddy/binaries/python/envs/default/Scripts/python -c "..." 
+  ```

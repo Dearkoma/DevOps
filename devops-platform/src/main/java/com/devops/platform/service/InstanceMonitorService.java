@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -62,6 +63,154 @@ public class InstanceMonitorService {
                 instanceRepository.save(inst);
             }
         }
+    }
+
+    /** 定期采集所有运行中实例的 CPU/内存指标（每 15 秒） */
+    @Scheduled(fixedRate = 15000)
+    public void collectMetrics() {
+        List<ServiceInstance> instances = instanceRepository.findAll();
+        for (ServiceInstance inst : instances) {
+            if (!"RUNNING".equals(inst.getStatus())) continue;
+            try {
+                if ("K8S".equals(inst.getDeployType())) {
+                    collectK8sMetrics(inst);
+                } else {
+                    collectDockerMetrics(inst);
+                }
+            } catch (Exception e) {
+                log.debug("采集指标失败 [{}]: {}", inst.getInstanceName(), e.getMessage());
+            }
+        }
+    }
+
+    /** 通过 docker stats 采集 Docker 容器的 CPU/内存 */
+    private void collectDockerMetrics(ServiceInstance inst) {
+        String containerId = resolveDockerContainerId(inst);
+        if (containerId == null || containerId.isEmpty()) return;
+
+        ProcessBuilder pb = new ProcessBuilder(dockerCommand, "stats", "--no-stream",
+                "--format", "{{.CPUPerc}}|{{.MemUsage}}", containerId);
+        pb.redirectErrorStream(true);
+        try {
+            Process proc = pb.start();
+            boolean finished = proc.waitFor(5, TimeUnit.SECONDS);
+            if (!finished) {
+                proc.destroyForcibly();
+                return;
+            }
+            if (proc.exitValue() != 0) return;
+
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) output.append(line);
+            }
+
+            String raw = output.toString().trim();
+            if (raw.isEmpty()) return;
+
+            // 格式: "0.05%|15.26MiB / 1.94GiB"
+            String[] parts = raw.split("\\|", 2);
+            if (parts.length < 2) return;
+
+            // 解析 CPU 百分比
+            String cpuStr = parts[0].replace("%", "").trim();
+            try {
+                inst.setCpuUsage(Double.parseDouble(cpuStr));
+            } catch (NumberFormatException e) {
+                log.trace("CPU 解析失败: {}", cpuStr);
+            }
+
+            // 解析内存使用量
+            String memUsed = parts[1].trim().split("/")[0].trim();
+            double memMB = parseDockerMemToMB(memUsed);
+            if (memMB >= 0) {
+                inst.setMemoryUsage(memMB);
+            }
+
+            inst.setLastHeartbeat(LocalDateTime.now());
+            instanceRepository.save(inst);
+        } catch (Exception e) {
+            log.debug("Docker 指标采集异常 [{}]: {}", inst.getInstanceName(), e.getMessage());
+        }
+    }
+
+    /** 通过 kubectl top 采集 K8s Pod 的 CPU/内存 */
+    private void collectK8sMetrics(ServiceInstance inst) {
+        String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
+        String podName = inst.getK8sPodName();
+        if (podName == null || podName.isEmpty()) return;
+
+        String cmd = String.format("kubectl top pod %s -n %s --no-headers", podName, ns);
+        ProcessResult r = runCommand(cmd);
+        if (!r.success || r.output.isBlank()) return;
+
+        // 输出格式: "pod-name   15m   128Mi"
+        String[] parts = r.output.trim().split("\\s+");
+        if (parts.length < 3) return;
+
+        try {
+            // CPU: "15m" → millicores, "1" → cores
+            String cpuStr = parts[1];
+            double millicpu;
+            if (cpuStr.endsWith("m")) {
+                millicpu = Double.parseDouble(cpuStr.replace("m", ""));
+            } else {
+                millicpu = Double.parseDouble(cpuStr) * 1000;
+            }
+            // 转换为百分比 (1000m ≈ 1 核 → 以此为基准)
+            inst.setCpuUsage(Math.round(millicpu / 10.0 * 10.0) / 10.0);
+        } catch (NumberFormatException e) {
+            log.trace("K8s CPU 解析失败: {}", parts[1]);
+        }
+
+        // 内存: "128Mi"
+        double memMB = parseK8sMemToMB(parts[2]);
+        if (memMB >= 0) {
+            inst.setMemoryUsage(memMB);
+        }
+
+        inst.setLastHeartbeat(LocalDateTime.now());
+        instanceRepository.save(inst);
+    }
+
+    /** 解析 Docker stats 返回的内存字符串 (KiB/MiB/GiB/KB/MB/GB/B → MB) */
+    private double parseDockerMemToMB(String memStr) {
+        if (memStr == null || memStr.isEmpty() || "0B".equals(memStr)) return 0;
+        try {
+            memStr = memStr.trim();
+            double value;
+            if (memStr.endsWith("KiB")) {
+                value = Double.parseDouble(memStr.replace("KiB", "").trim()) / 1024.0;
+            } else if (memStr.endsWith("MiB")) {
+                value = Double.parseDouble(memStr.replace("MiB", "").trim());
+            } else if (memStr.endsWith("GiB")) {
+                value = Double.parseDouble(memStr.replace("GiB", "").trim()) * 1024.0;
+            } else if (memStr.endsWith("kB")) {
+                value = Double.parseDouble(memStr.replace("kB", "").trim()) / 1000.0;
+            } else if (memStr.endsWith("MB")) {
+                value = Double.parseDouble(memStr.replace("MB", "").trim());
+            } else if (memStr.endsWith("GB")) {
+                value = Double.parseDouble(memStr.replace("GB", "").trim()) * 1000.0;
+            } else if (memStr.endsWith("B")) {
+                value = Double.parseDouble(memStr.replace("B", "").trim()) / (1024.0 * 1024.0);
+            } else {
+                return -1;
+            }
+            return Math.round(value * 100.0) / 100.0;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** 解析 K8s kubectl top 返回的内存字符串 (Ki/Mi/Gi → MB) */
+    private double parseK8sMemToMB(String memStr) {
+        if (memStr == null || memStr.isEmpty()) return -1;
+        return parseDockerMemToMB(memStr
+                .replace("Ki", "KiB")
+                .replace("Mi", "MiB")
+                .replace("Gi", "GiB")
+                .replace("Ti", "TiB"));
     }
 
     /** 获取按部署类型分组的实例统计 */
@@ -126,7 +275,7 @@ public class InstanceMonitorService {
                     "{{.Name}}|{{.ServerVersion}}|{{.ContainersRunning}}|{{.ContainersStopped}}|{{.Images}}");
             pb.redirectErrorStream(true);
             Process proc = pb.start();
-            boolean finished = proc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+            boolean finished = proc.waitFor(10, TimeUnit.SECONDS);
             if (finished && proc.exitValue() == 0) {
                 StringBuilder output = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {

@@ -396,8 +396,8 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                 <td><BadgeStatus val={inst.status} /></td>
                 <td><BadgeHealth val={inst.healthStatus} /></td>
                 <td style={{ fontSize: 12 }}>{inst.imageName}:{inst.imageTag || 'latest'}</td>
-                <td>{inst.cpuUsage ? inst.cpuUsage.toFixed(1) + '%' : '-'}</td>
-                <td>{inst.memoryUsage ? inst.memoryUsage.toFixed(0) + 'MB' : '-'}</td>
+                <td>{inst.cpuUsage != null ? inst.cpuUsage.toFixed(1) + '%' : '-'}</td>
+                <td>{inst.memoryUsage != null ? inst.memoryUsage.toFixed(0) + 'MB' : '-'}</td>
                 <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
                 <td>
                   <div className="btn-group">
