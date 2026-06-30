@@ -136,7 +136,7 @@ CREATE TABLE service_instances (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     build_id        BIGINT,
     project_id      BIGINT        NOT NULL,
-    environment_id  BIGINT        NOT NULL,
+    environment_id  BIGINT,
     instance_id     VARCHAR(100),
     status          VARCHAR(20),
     pod_ip          VARCHAR(50),
@@ -149,7 +149,7 @@ CREATE TABLE service_instances (
     updated_at      DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (build_id) REFERENCES builds(id) ON DELETE SET NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE,
+    FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE SET NULL,
     INDEX idx_project_id (project_id),
     INDEX idx_environment_id (environment_id),
     INDEX idx_status (status)
