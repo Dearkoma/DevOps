@@ -46,9 +46,22 @@ export default function Login() {
 
     setLoading(true)
     try {
+      // ① 先获取一次性登录令牌
+      const tokenRes = await fetch('/api/auth/login-token')
+      if (!tokenRes.ok) {
+        setError('无法获取登录令牌，请刷新页面重试')
+        setLoading(false)
+        return
+      }
+      const { token: loginToken } = await tokenRes.json()
+
+      // ② 携带令牌发起登录
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Login-Token': loginToken,
+        },
         body: JSON.stringify(form),
       })
 
@@ -56,7 +69,7 @@ export default function Login() {
 
       if (!res.ok) {
         if (res.status === 403) {
-          setError('账号已被禁用，请联系管理员')
+          setError(data.error || '账号已被禁用，请联系管理员')
         } else if (res.status === 500) {
           setError('服务器内部错误（500），请检查后端日志')
         } else {

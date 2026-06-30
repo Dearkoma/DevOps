@@ -6,6 +6,7 @@ import com.devops.platform.dto.LoginRequest;
 import com.devops.platform.dto.RegisterRequest;
 import com.devops.platform.entity.User;
 import com.devops.platform.repository.UserRepository;
+import com.devops.platform.service.LoginTokenService;
 import com.devops.platform.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -25,22 +26,42 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final UserService userService;
+    private final LoginTokenService loginTokenService;
 
     public AuthController(UserRepository userRepository,
                           PasswordEncoder passwordEncoder,
                           JwtUtil jwtUtil,
-                          UserService userService) {
+                          UserService userService,
+                          LoginTokenService loginTokenService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
+        this.loginTokenService = loginTokenService;
     }
 
     /**
-     * 用户登录
+     * 获取一次性登录令牌（仅前端可用）
+     */
+    @GetMapping("/login-token")
+    public ResponseEntity<?> getLoginToken() {
+        String token = loginTokenService.generate();
+        return ResponseEntity.ok(Map.of("token", token));
+    }
+
+    /**
+     * 用户登录（需携带 X-Login-Token 头，防止非前端直调）
      */
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request,
+                                   @RequestHeader(value = "X-Login-Token", required = false) String loginToken) {
+        // 一次性登录令牌校验 —— 阻止 curl/Postman 等直接调用
+        if (!loginTokenService.validateAndConsume(loginToken)) {
+            return ResponseEntity.status(403).body(Map.of(
+                "error", "请通过前端页面登录",
+                "detail", "缺少或无效的一次性登录令牌"
+            ));
+        }
         // 大小写不敏感查找
         User user = userRepository.findByUsernameIgnoreCase(request.getUsername())
                 .orElseThrow(() -> new BadCredentialsException("用户名或密码错误"));
