@@ -401,10 +401,13 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                 <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
                 <td>
                   <div className="btn-group">
-                    {inst.status === 'RUNNING' && (
-                      <button className="btn btn-outline btn-sm" onClick={() => setRestartTarget(inst)}>🔄 重启</button>
-                    )}
-                    {inst.status === 'RUNNING' && (
+                    {/* 重启：任何状态都可以尝试重启恢复 */}
+                    <button className="btn btn-outline btn-sm" onClick={() => setRestartTarget(inst)}
+                      title={inst.status !== 'RUNNING' ? '实例状态异常，尝试重启恢复' : '重启实例'}>
+                      🔄 重启
+                    </button>
+                    {/* 停止：仅运行中或未知状态可尝试停止 */}
+                    {(inst.status === 'RUNNING' || inst.status === 'UNKNOWN') && (
                       <button className="btn btn-outline btn-sm" style={{ color: '#f59e0b', borderColor: '#f59e0b' }} onClick={() => setStopTarget(inst)}>⏹ 停止</button>
                     )}
                     <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(inst)}>🗑 删除</button>
