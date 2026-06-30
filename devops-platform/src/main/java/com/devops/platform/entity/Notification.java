@@ -22,6 +22,9 @@ public class Notification {
     private String title;
 
     @Column(columnDefinition = "TEXT")
+    private String content;
+
+    @Column(columnDefinition = "TEXT")
     private String message;
 
     @Column(length = 50)

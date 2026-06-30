@@ -20,6 +20,7 @@ public class NotificationService {
         Notification n = new Notification();
         n.setType(type);
         n.setTitle(title);
+        n.setContent(message);
         n.setMessage(message);
         n.setRecipient(recipient);
         n.setRelatedId(relatedId);

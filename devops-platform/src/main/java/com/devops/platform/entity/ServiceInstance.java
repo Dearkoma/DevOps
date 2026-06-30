@@ -19,6 +19,12 @@ public class ServiceInstance {
     @Column(nullable = false)
     private Long projectId;
 
+    @Column
+    private Long environmentId;
+
+    @Column
+    private Long buildId;
+
     @Column(length = 100)
     private String projectName;
 
