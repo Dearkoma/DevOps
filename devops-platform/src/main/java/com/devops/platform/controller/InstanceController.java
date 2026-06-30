@@ -91,6 +91,17 @@ public class InstanceController {
     }
 
     /**
+     * 启动服务实例（从 STOPPED 状态恢复）
+     * - Docker: docker start
+     * - K8s:    kubectl scale --replicas=1
+     */
+    @PostMapping("/{id}/start")
+    public ResponseEntity<Map<String, Object>> start(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.startInstance(id);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
      * 获取实例访问信息（内部链接 + 外部部署状态）
      */
     @GetMapping("/{id}/access-info")

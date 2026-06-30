@@ -649,9 +649,16 @@ public class InstanceMonitorService {
         }
 
         // 始终实时解析当前 Pod 名（存储的 k8sPodName 可能已过期——Pod 重建后名字会变）
+        // 重试机制：重启/启动后 Pod 可能需要几秒才创建
         String podName = null;
         if (searchTerm != null && !searchTerm.isBlank()) {
-            podName = resolveK8sPodNameAllPhases(ns, searchTerm);
+            for (int attempt = 0; attempt < 3; attempt++) {
+                podName = resolveK8sPodNameAllPhases(ns, searchTerm);
+                if (podName != null && !podName.isBlank()) break;
+                if (attempt < 2) {
+                    try { Thread.sleep(2000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                }
+            }
         }
 
         // 实时解析失败 = 没有 Pod（可能 Deployment replicas=0 已停止，或 Pod 已被删除）
@@ -975,6 +982,60 @@ public class InstanceMonitorService {
             return Map.of("success", true, "message", "K8s Deployment 正在滚动重启", "output", r.output, "deployment", depName);
         }
         return Map.of("success", false, "error", "重启失败", "output", r.output);
+    }
+
+    /**
+     * 启动服务实例（从 STOPPED 状态恢复）
+     * - Docker: docker start <containerId>
+     * - K8s:    kubectl scale deployment/<depName> --replicas=1 -n <namespace>
+     */
+    public Map<String, Object> startInstance(Long id) {
+        ServiceInstance inst = instanceRepository.findById(id).orElse(null);
+        if (inst == null) return Map.of("success", false, "error", "实例不存在");
+
+        try {
+            if ("K8S".equals(inst.getDeployType())) {
+                return startK8sInstance(inst);
+            } else {
+                return startDockerInstance(inst);
+            }
+        } catch (Exception e) {
+            log.error("启动实例失败 [{}]: {}", inst.getInstanceName(), e.getMessage());
+            return Map.of("success", false, "error", "启动失败: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> startK8sInstance(ServiceInstance inst) throws Exception {
+        String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
+        String depName = resolveK8sDeploymentName(inst);
+        if (depName == null || depName.isEmpty()) {
+            return Map.of("success", false, "error", "无法解析 Deployment 名称");
+        }
+        ProcessResult r = kubectl("scale", "deployment/" + depName, "--replicas=1", "-n", ns);
+        if (r.success) {
+            inst.setStatus("RUNNING");
+            inst.setHealthStatus("HEALTHY");
+            inst.setLastHeartbeat(LocalDateTime.now());
+            instanceRepository.save(inst);
+            return Map.of("success", true, "message", "K8s Deployment 已扩容到 1（Pod 正在启动）", "output", r.output, "deployment", depName);
+        }
+        return Map.of("success", false, "error", "启动失败", "output", r.output);
+    }
+
+    private Map<String, Object> startDockerInstance(ServiceInstance inst) throws Exception {
+        String containerId = resolveDockerContainerId(inst);
+        if (containerId == null || containerId.isEmpty()) {
+            return Map.of("success", false, "error", "未找到关联的容器（可能已被删除，请重新部署）");
+        }
+        ProcessResult r = docker("start", containerId);
+        if (r.success) {
+            inst.setStatus("RUNNING");
+            inst.setHealthStatus("HEALTHY");
+            inst.setLastHeartbeat(LocalDateTime.now());
+            instanceRepository.save(inst);
+            return Map.of("success", true, "message", "Docker 容器已启动", "output", r.output);
+        }
+        return Map.of("success", false, "error", "启动失败", "output", r.output);
     }
 
     /**

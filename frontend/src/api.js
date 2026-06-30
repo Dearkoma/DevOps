@@ -160,6 +160,7 @@ export const reconnectK8s = () => request('/instances/k8s-reconnect', { method: 
 export const fetchK8sNamespaces = () => request('/instances/k8s-namespaces')
 export const restartInstance = (id) => request(`/instances/${id}/restart`, { method: 'POST' })
 export const stopInstance = (id) => request(`/instances/${id}/stop`, { method: 'POST' })
+export const startInstance = (id) => request(`/instances/${id}/start`, { method: 'POST' })
 export const deleteInstance = (id) => request(`/instances/${id}`, { method: 'DELETE' })
 export const getAccessInfo = (id) => request(`/instances/${id}/access-info`)
 export const exposeToExternal = (id) => request(`/instances/${id}/expose`, { method: 'POST' })

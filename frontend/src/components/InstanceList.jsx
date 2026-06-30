@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   fetchInstances, fetchInstanceStats, fetchStatsByType,
   fetchAvailability, fetchK8sStatus, reconnectK8s,
-  deleteInstance, restartInstance, stopInstance,
+  deleteInstance, restartInstance, stopInstance, startInstance,
   fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment,
   getAccessInfo, exposeToExternal, getInstanceLogs
 } from '../api'
@@ -30,6 +30,7 @@ export default function InstanceList() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [restartTarget, setRestartTarget] = useState(null)
   const [stopTarget, setStopTarget] = useState(null)
+  const [startTarget, setStartTarget] = useState(null)
 
   // 展开行：访问信息
   const [expandedId, setExpandedId] = useState(null)
@@ -97,19 +98,45 @@ export default function InstanceList() {
   const handleRestartInstance = async () => {
     try {
       const r = await restartInstance(restartTarget.id)
+      const instId = restartTarget.id
       setRestartTarget(null)
       alert(r?.message || (r?.success ? '重启成功' : '重启失败: ' + (r?.error || '')))
       loadAll()
+      // 重启后如果日志面板正打开，延迟刷新（Pod 需要几秒启动）
+      if (showLogsId === instId) {
+        setLogsData({ success: true, logs: '⏳ 实例正在重启，等待 Pod 启动后自动获取日志...', source: 'waiting' })
+        setTimeout(() => handleViewLogs({ id: instId }), 5000)
+      }
     } catch (e) { setRestartTarget(null); alert('重启失败: ' + e.message) }
   }
 
   const handleStopInstance = async () => {
     try {
       const r = await stopInstance(stopTarget.id)
+      const instId = stopTarget.id
       setStopTarget(null)
       alert(r?.message || (r?.success ? '已停止' : '停止失败: ' + (r?.error || '')))
       loadAll()
+      // 停止后清空日志
+      if (showLogsId === instId) {
+        setLogsData({ success: false, error: '实例已停止，日志不可用。请先启动实例。', logs: '' })
+      }
     } catch (e) { setStopTarget(null); alert('停止失败: ' + e.message) }
+  }
+
+  const handleStartInstance = async () => {
+    try {
+      const r = await startInstance(startTarget.id)
+      const instId = startTarget.id
+      setStartTarget(null)
+      alert(r?.message || (r?.success ? '启动成功' : '启动失败: ' + (r?.error || '')))
+      loadAll()
+      // 启动后如果日志面板正打开，延迟刷新
+      if (showLogsId === instId) {
+        setLogsData({ success: true, logs: '⏳ 实例正在启动，等待 Pod 就绪后自动获取日志...', source: 'waiting' })
+        setTimeout(() => handleViewLogs({ id: instId }), 5000)
+      }
+    } catch (e) { setStartTarget(null); alert('启动失败: ' + e.message) }
   }
 
   const viewDepDetail = async (dep) => {
@@ -187,7 +214,7 @@ export default function InstanceList() {
 
   if (loading && !dockerStatus && !k8sStatus) return <div className="empty-state"><div className="spinner" /></div>
 
-  const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, restartTarget, setRestartTarget, handleRestartInstance, stopTarget, setStopTarget, handleStopInstance, canManage, loadAll,
+  const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, restartTarget, setRestartTarget, handleRestartInstance, stopTarget, setStopTarget, handleStopInstance, startTarget, setStartTarget, handleStartInstance, canManage, loadAll,
     expandedId, accessInfo, accessLoading, exposingId,
     onToggleRow: handleToggleRow, onExpose: handleExpose,
     logsData, logsLoading, showLogsId, onViewLogs: handleViewLogs, onSaveLogs: handleSaveLogs, onCloseLogs: handleCloseLogs }
@@ -216,6 +243,9 @@ export default function InstanceList() {
 
       {/* 停止实例弹窗 */}
       {stopTarget && <StopInstanceModal target={stopTarget} onClose={() => setStopTarget(null)} onConfirm={handleStopInstance} />}
+
+      {/* 启动实例弹窗 */}
+      {startTarget && <StartInstanceModal target={startTarget} onClose={() => setStartTarget(null)} onConfirm={handleStartInstance} />}
 
       {/* 删除 K8s Deployment 弹窗 */}
       {deleteDepTarget && <DeleteDeploymentModal target={deleteDepTarget} namespace={depNamespace} onClose={() => setDeleteDepTarget(null)} onConfirm={handleDeleteDeployment} />}
@@ -298,6 +328,32 @@ function StopInstanceModal({ target, onClose, onConfirm }) {
   )
 }
 
+function StartInstanceModal({ target, onClose, onConfirm }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <h3>▶️ 确认启动服务实例</h3>
+        <div style={{ marginTop: 16, fontSize: 14, color: '#374151', lineHeight: 1.8 }}>
+          <p>即将启动以下实例：</p>
+          <div style={{ background: '#f3f4f6', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+            <div><strong>实例名称：</strong>{target.instanceName}</div>
+            <div><strong>项目：</strong>{target.projectName || `#${target.projectId}`}</div>
+            <div><strong>部署类型：</strong>{target.deployType}</div>
+            <div><strong>当前状态：</strong><span style={{ color: '#f59e0b' }}>{target.status}</span></div>
+          </div>
+          <p style={{ color: '#10b981', fontSize: 12 }}>
+            {target.deployType === 'K8S' ? '☸️ 将执行 kubectl scale --replicas=1，恢复 Pod 运行' : '🐳 将执行 docker start，恢复容器运行'}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="btn btn-outline" onClick={onClose}>取消</button>
+          <button className="btn btn-success" style={{ background: '#10b981', color: '#fff', border: 'none' }} onClick={onConfirm}>确认启动</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function DeleteDeploymentModal({ target, namespace, onClose, onConfirm }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -322,7 +378,7 @@ function DeleteDeploymentModal({ target, namespace, onClose, onConfirm }) {
 }
 
 // ==================== 页面视图 ====================
-function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
+function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
   return (
     <>
       <div className="page-header">
@@ -330,14 +386,14 @@ function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget,
         <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 刷新</button>
       </div>
       {stats && <StatsRow stats={stats} />}
-      <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
+      <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
         expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
         logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
     </>
   )
 }
 
-function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
+function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
   const dStats = statsByType?.docker
   return (
     <>
@@ -355,7 +411,7 @@ function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarge
         </div>
       )}
       {dStats && <TypeStats summary={dStats} label="Docker" />}
-      <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
+      <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
         expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
         logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
     </>
@@ -367,7 +423,7 @@ function K8sView({
   deployments, depLoading, depNamespace, setDepNamespace, loadDeployments,
   depDetail, setDepDetail, depDetailLoading, viewDepDetail,
   deleteDepTarget, setDeleteDepTarget, handleDeleteDeployment,
-  setDeleteTarget, setRestartTarget, setStopTarget, loadAll, canManage,
+  setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, canManage,
   expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose,
   logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs,
 }) {
@@ -385,7 +441,7 @@ function K8sView({
         extra={k8sStatus?.connected && k8sStatus?.pods?.length > 0 && <PodList pods={k8sStatus.pods} count={k8sStatus.podCount} />}
       />
       {kStats && <TypeStats summary={kStats} label="K8s" />}
-      <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget}
+      <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
         expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
         logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} />
       {k8sStatus?.connected && <DeploymentPanel
@@ -454,7 +510,7 @@ function PodList({ pods, count }) {
   )
 }
 
-function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
+function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs }) {
   if (instances.length === 0) return (
     <div className="card"><div className="empty-state"><div className="icon">📦</div><p>暂无服务实例</p><p style={{ fontSize: 12 }}>构建并部署后，服务实例将自动注册</p></div></div>
   )
@@ -490,12 +546,17 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                   <td style={{ fontSize: 12 }}>{inst.lastHeartbeat ? new Date(inst.lastHeartbeat).toLocaleString() : '-'}</td>
                   <td onClick={e => e.stopPropagation()}>
                     <div className="btn-group">
-                      <button className="btn btn-outline btn-sm" onClick={() => setRestartTarget(inst)}
-                        title={inst.status !== 'RUNNING' ? '实例状态异常，尝试重启恢复' : '重启实例'}>
-                        🔄 重启
-                      </button>
-                      {(inst.status === 'RUNNING' || inst.status === 'UNKNOWN') && (
-                        <button className="btn btn-outline btn-sm" style={{ color: '#f59e0b', borderColor: '#f59e0b' }} onClick={() => setStopTarget(inst)}>⏹ 停止</button>
+                      {inst.status === 'STOPPED' ? (
+                        <button className="btn btn-outline btn-sm" style={{ color: '#10b981', borderColor: '#10b981' }} onClick={() => setStartTarget(inst)}
+                          title="启动实例">▶️ 启动</button>
+                      ) : (
+                        <>
+                          <button className="btn btn-outline btn-sm" onClick={() => setRestartTarget(inst)}
+                            title={inst.status !== 'RUNNING' ? '实例状态异常，尝试重启恢复' : '重启实例'}>
+                            🔄 重启
+                          </button>
+                          <button className="btn btn-outline btn-sm" style={{ color: '#f59e0b', borderColor: '#f59e0b' }} onClick={() => setStopTarget(inst)}>⏹ 停止</button>
+                        </>
                       )}
                       <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(inst)}>🗑 删除</button>
                     </div>
