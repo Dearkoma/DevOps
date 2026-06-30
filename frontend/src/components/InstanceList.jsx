@@ -492,6 +492,11 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                                   {accessInfo.externalPort && (
                                     <span className="badge badge-success" style={{ fontSize: 11 }}>端口 {accessInfo.externalPort}</span>
                                   )}
+                                  <a className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px', textDecoration: 'none' }}
+                                    href={accessInfo.externalUrl} target="_blank" rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}>
+                                    🔗 打开
+                                  </a>
                                   <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
                                     onClick={() => { navigator.clipboard.writeText(accessInfo.externalUrl); alert('已复制外部链接') }}>
                                     📋 复制

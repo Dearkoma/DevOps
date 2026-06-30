@@ -670,6 +670,20 @@ public class BuildService {
         String image = appName + ":latest";
         int containerPort = 8080;
         if ("Node.js".equalsIgnoreCase(project.getLanguage())) containerPort = 3000;
+
+        // Java/Spring Boot 项目需要连接宿主机 MySQL，通过 host.docker.internal 访问
+        String envSection = "";
+        if (project.getLanguage() == null || !"Node.js".equalsIgnoreCase(project.getLanguage())) {
+            envSection =
+                "          env:\n" +
+                "            - name: SPRING_DATASOURCE_URL\n" +
+                "              value: \"jdbc:mysql://host.docker.internal:3306/devops_platform?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true\"\n" +
+                "            - name: SPRING_DATASOURCE_USERNAME\n" +
+                "              value: \"root\"\n" +
+                "            - name: SPRING_DATASOURCE_PASSWORD\n" +
+                "              value: \"Dearkoma.962464\"\n";
+        }
+
         return "apiVersion: apps/v1\n" +
                 "kind: Deployment\n" +
                 "metadata:\n" +
@@ -691,6 +705,7 @@ public class BuildService {
                 "          imagePullPolicy: IfNotPresent\n" +
                 "          ports:\n" +
                 "            - containerPort: " + containerPort + "\n" +
+                envSection +
                 "          resources:\n" +
                 "            requests:\n" +
                 "              memory: \"256Mi\"\n" +
