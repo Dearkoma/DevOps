@@ -474,6 +474,13 @@ public class InstanceMonitorService {
         info.put("deployType", inst.getDeployType());
         info.put("status", inst.getStatus());
 
+        // 停止状态不返回访问链接（没有运行中的服务）
+        if ("STOPPED".equals(inst.getStatus())) {
+            info.put("stopped", true);
+            info.put("message", "实例已停止，无可用访问链接。请先启动实例。");
+            return info;
+        }
+
         if ("K8S".equals(inst.getDeployType())) {
             buildK8sAccessInfo(inst, info);
         } else {
@@ -629,6 +636,16 @@ public class InstanceMonitorService {
         result.put("instanceName", inst.getInstanceName());
         result.put("deployType", inst.getDeployType());
         result.put("tailLines", tail);
+        result.put("status", inst.getStatus());
+
+        // K8s 停止后 Pod 被回收，日志不可获取——返回 stopped 标记，让前端显示缓存
+        if ("K8S".equals(inst.getDeployType()) && "STOPPED".equals(inst.getStatus())) {
+            result.put("success", false);
+            result.put("stopped", true);
+            result.put("error", "实例已停止，K8s Pod 已被回收。以下为停止前最后一次获取的日志缓存。");
+            result.put("logs", "");
+            return result;
+        }
 
         if ("K8S".equals(inst.getDeployType())) {
             collectK8sLogs(inst, tail, result);

@@ -25,9 +25,9 @@
 - **⚠️ 开发模式下禁止跑 `npm run build`**：vite.config.js 的 outDir 指向 `../devops-platform/src/main/resources/static/`，一跑 build 就会重建 static/ 目录，导致 8080 又能直接访问前端页面，绕过登录限制。验证编译用 `npx vite build --outDir /tmp/check` 或直接看 HMR 是否报错。
 
 ## 可恢复机制
-- 当前最新提交 `da14bd2`（2026-07-01 01:20）。
+- 当前最新提交 `278ad8a`（2026-07-01 01:40）。
 - 改代码前：`git stash` 或先 commit；改完可 `git diff`/`git checkout -- <file>` 回退。
-- 整体回退：`git reset --hard da14bd2`。
+- 整体回退：`git reset --hard 278ad8a`。
 
 ## 关键路径速查
 - 配置：`devops-platform/src/main/resources/application.yml`（MySQL 密码在此改）

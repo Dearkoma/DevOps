@@ -39,9 +39,10 @@ export default function InstanceList() {
   const [exposingId, setExposingId] = useState(null)
 
   // 日志查看
-  const [logsData, setLogsData] = useState(null)       // { [instanceId]: { success, logs, ... } }
+  const [logsData, setLogsData] = useState(null)       // 当前实例的日志数据
   const [logsLoading, setLogsLoading] = useState(null)  // 正在加载日志的 instanceId
   const [showLogsId, setShowLogsId] = useState(null)    // 当前显示日志的 instanceId
+  const [logsCache, setLogsCache] = useState({})        // 日志缓存: { [id]: { logs, source, timestamp } }
 
   // K8s Deployments
   const [deployments, setDeployments] = useState([])
@@ -117,9 +118,17 @@ export default function InstanceList() {
       setStopTarget(null)
       alert(r?.message || (r?.success ? '已停止' : '停止失败: ' + (r?.error || '')))
       loadAll()
-      // 停止后清空日志
+      // 停止后日志面板显示缓存日志 + 提示
       if (showLogsId === instId) {
-        setLogsData({ success: false, error: '实例已停止，日志不可用。请先启动实例。', logs: '' })
+        const cached = logsCache[instId]
+        setLogsData({
+          success: false,
+          stopped: true,
+          error: '实例已停止，K8s Pod 已被回收。以下为停止前最后一次获取的日志缓存。',
+          logs: cached?.logs || '',
+          source: cached?.source || null,
+          cachedAt: cached?.timestamp
+        })
       }
     } catch (e) { setStopTarget(null); alert('停止失败: ' + e.message) }
   }
@@ -174,6 +183,10 @@ export default function InstanceList() {
     try {
       const r = await getInstanceLogs(inst.id, tail)
       setLogsData(r)
+      // 成功获取日志时缓存
+      if (r.success && r.logs) {
+        setLogsCache(prev => ({ ...prev, [inst.id]: { logs: r.logs, source: r.source, timestamp: Date.now() } }))
+      }
     } catch (e) {
       setLogsData({ success: false, error: e.message, logs: '' })
     } finally {
@@ -569,10 +582,16 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                       <div style={{ padding: '14px 20px', borderTop: '2px solid #6366f1' }}>
                         {accessLoading ? (
                           <div style={{ textAlign: 'center', padding: 12 }}><div className="spinner" /></div>
+                        ) : accessInfo?.stopped ? (
+                          <div style={{
+                            background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8,
+                            padding: '10px 14px', fontSize: 13, color: '#92400e', display: 'flex', alignItems: 'center', gap: 8
+                          }}>
+                            ⏹ 实例已停止，无可用访问链接。请先启动实例后查看。
+                          </div>
                         ) : accessInfo?.success === false ? (
                           <div style={{ color: '#ef4444', fontSize: 13 }}>❌ {accessInfo.error}</div>
                         ) : accessInfo ? (
-                          <>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
                             {/* 内部链接 */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -629,8 +648,10 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                               )}
                             </div>
                           </div>
+                        ) : null}
 
-                          {/* 日志区域 */}
+                        {/* 日志区域 — 始终显示（停止时用缓存） */}
+                        {accessInfo && !accessLoading && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #d1d5db' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                               <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -672,6 +693,33 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                             {showLogsId === inst.id && (
                               logsLoading === inst.id ? (
                                 <div style={{ textAlign: 'center', padding: 16, color: '#6b7280' }}><div className="spinner" /></div>
+                              ) : logsData?.stopped ? (
+                                /* 停止状态：显示缓存日志 + 黄色警告条 */
+                                <>
+                                  {logsData.logs ? (
+                                    <>
+                                      <div style={{
+                                        background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6,
+                                        padding: '6px 10px', marginBottom: 6, fontSize: 12, color: '#92400e'
+                                      }}>
+                                        ⚠️ {logsData.error || '实例已停止，以下为停止前缓存的日志'}
+                                      </div>
+                                      <pre style={{
+                                        background: '#1e1e1e', color: '#d4d4d4', borderRadius: 8,
+                                        padding: 12, maxHeight: 400, overflow: 'auto',
+                                        fontSize: 12, lineHeight: 1.5, fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                                        whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0
+                                      }}>{logsData.logs}</pre>
+                                    </>
+                                  ) : (
+                                    <div style={{
+                                      background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6,
+                                      padding: '10px 14px', fontSize: 12, color: '#92400e'
+                                    }}>
+                                      ⚠️ 实例已停止，且无缓存日志可用。请先启动实例后查看日志。
+                                    </div>
+                                  )}
+                                </>
                               ) : logsData?.success === false ? (
                                 <div style={{ color: '#ef4444', fontSize: 12, padding: 8, background: '#fef2f2', borderRadius: 6 }}>❌ {logsData.error}</div>
                               ) : logsData?.logs ? (
@@ -686,8 +734,7 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                               )
                             )}
                           </div>
-                          </>
-                        ) : null}
+                        )}
                       </div>
                     </td>
                   </tr>
