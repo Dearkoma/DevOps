@@ -217,6 +217,34 @@ public class InstanceMonitorService {
         return null;
     }
 
+    /**
+     * 解析 K8s Pod 名称（不限状态，包括 CrashLoopBackOff / Failed 等非 Running Pod）
+     * 用于日志查看场景——需要能看到崩溃 Pod 的日志
+     */
+    private String resolveK8sPodNameAllPhases(String namespace, String searchTerm) {
+        if (searchTerm == null || searchTerm.isEmpty()) return null;
+
+        String cmd = String.format("kubectl get pods -n %s "
+                + "-o custom-columns=NAME:.metadata.name --no-headers", namespace);
+        ProcessResult r = runCommand(cmd);
+        if (!r.success || r.output.isBlank()) return null;
+
+        // 优先前缀匹配（Deployment 创建的 Pod 名 = searchTerm-<replicaset-hash>-<pod-hash>）
+        for (String line : r.output.split("\\R")) {
+            String name = line.trim();
+            if (name.isEmpty()) continue;
+            if (name.startsWith(searchTerm + "-")) return name;
+        }
+
+        // 宽松匹配
+        for (String line : r.output.split("\\R")) {
+            String name = line.trim();
+            if (!name.isEmpty() && name.contains(searchTerm)) return name;
+        }
+
+        return null;
+    }
+
     /** 解析 Docker stats 返回的内存字符串 (KiB/MiB/GiB/KB/MB/GB/B → MB) */
     private double parseDockerMemToMB(String memStr) {
         if (memStr == null || memStr.isEmpty() || "0B".equals(memStr)) return 0;
@@ -589,15 +617,19 @@ public class InstanceMonitorService {
     private void collectK8sLogs(ServiceInstance inst, int tail, Map<String, Object> result) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
 
-        // 解析实际 Pod 名
-        String podName = inst.getK8sPodName();
+        // 始终实时解析当前 Pod 名（存储的 k8sPodName 可能已过期——Pod 重建后名字会变）
+        String searchTerm = (inst.getProjectName() != null && !inst.getProjectName().isBlank())
+                ? inst.getProjectName() : inst.getInstanceName();
+        String podName = resolveK8sPodNameAllPhases(ns, searchTerm);
+
+        // 如果实时解析失败，回退到存储的 Pod 名（可能仍然有效）
         if (podName == null || podName.isBlank()) {
-            podName = resolveK8sPodName(ns, null, inst.getInstanceName(), inst.getProjectName());
+            podName = inst.getK8sPodName();
         }
 
         if (podName == null || podName.isBlank()) {
             result.put("success", false);
-            result.put("error", "未找到运行中的 Pod（命名空间: " + ns + "）");
+            result.put("error", "未找到 Pod（命名空间: " + ns + "，搜索: " + searchTerm + "）");
             result.put("logs", "");
             return;
         }
@@ -610,8 +642,13 @@ public class InstanceMonitorService {
             result.put("logs", r.output != null ? r.output : "(空日志)");
             result.put("podName", podName);
             result.put("namespace", ns);
+            // 顺便更新存储的 Pod 名
+            if (!podName.equals(inst.getK8sPodName())) {
+                inst.setK8sPodName(podName);
+                instanceRepository.save(inst);
+            }
         } else {
-            // Pod 可能已停止，尝试不带 --tail 获取之前的日志
+            // Pod 可能已停止，尝试获取上一次运行的日志
             ProcessResult prev = kubectl("logs", podName, "-n", ns, "--previous", "--tail=" + tail);
             if (prev.success && !prev.output.isBlank()) {
                 result.put("logs", "⚠️ Pod 当前无日志，以下是上一次运行的日志：\n\n" + prev.output);
