@@ -37,6 +37,12 @@ export default function ProjectList() {
   const [previewFile, setPreviewFile] = useState(null) // { path, name, content, language }
   const [expandedDirs, setExpandedDirs] = useState(new Set())
 
+  // Build trigger modal
+  const [showBuildModal, setShowBuildModal] = useState(false)
+  const [buildPendingPipeline, setBuildPendingPipeline] = useState(null)
+  const [buildSkipDocker, setBuildSkipDocker] = useState(false)
+  const [buildSkipK8s, setBuildSkipK8s] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     try { setProjects(await fetchProjects()) } catch (e) { console.error(e) }
@@ -207,8 +213,17 @@ export default function ProjectList() {
 
   const handleTriggerBuild = async (pipeline) => {
     if (!detailProject) return
+    setBuildPendingPipeline(pipeline)
+    setBuildSkipDocker(false)
+    setBuildSkipK8s(false)
+    setShowBuildModal(true)
+  }
+
+  const handleConfirmBuild = async () => {
+    if (!detailProject || !buildPendingPipeline) return
+    setShowBuildModal(false)
     try {
-      await triggerBuild(detailProject.id, pipeline.id)
+      await triggerBuild(detailProject.id, buildPendingPipeline.id, null, null, buildSkipDocker, buildSkipK8s)
       alert('构建已触发！')
     } catch (e) { alert('触发失败: ' + e.message) }
   }
@@ -538,6 +553,83 @@ export default function ProjectList() {
           </div>
         </div>
       )}
+
+      {/* ===== 构建触发确认弹窗 ===== */}
+      {showBuildModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }} onClick={() => setShowBuildModal(false)}>
+          <div style={{
+            background: '#fff', borderRadius: 12, padding: '24px 28px', width: 400, maxWidth: '92vw',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.18)'
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 18, color: '#1f2937' }}>⚡ 触发构建</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#6b7280' }}>
+              流水线: <strong>{buildPendingPipeline?.name}</strong>
+            </p>
+
+            <div style={{ background: '#f9fafb', borderRadius: 8, padding: '14px 16px' }}>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0',
+                cursor: 'pointer', borderBottom: '1px solid #e5e7eb'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={buildSkipDocker}
+                  onChange={e => setBuildSkipDocker(e.target.checked)}
+                  style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#6366f1' }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>🐳 跳过 Docker</div>
+                  <div style={{ fontSize: 11, color: '#9ca3af' }}>不构建和推送 Docker 镜像</div>
+                </div>
+              </label>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0',
+                cursor: 'pointer'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={buildSkipK8s}
+                  onChange={e => setBuildSkipK8s(e.target.checked)}
+                  style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#6366f1' }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>☸️ 跳过 Kubectl</div>
+                  <div style={{ fontSize: 11, color: '#9ca3af' }}>不执行 Kubernetes 部署</div>
+                </div>
+              </label>
+            </div>
+
+            <p style={{
+              margin: '12px 0 0', fontSize: 11, color: '#9ca3af', textAlign: 'center'
+            }}>
+              将执行: 编译 + 测试
+              {!buildSkipDocker ? ' + Docker' : ''}
+              {!buildSkipK8s ? ' + K8s 部署' : ''}
+            </p>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-outline"
+                onClick={() => setShowBuildModal(false)}
+                style={{ fontSize: 13 }}
+              >
+                取消
+              </button>
+              <button
+                className="btn btn-success"
+                onClick={handleConfirmBuild}
+                style={{ fontSize: 13 }}
+              >
+                ▶ 确认构建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </>
   )
 }

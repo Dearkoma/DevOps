@@ -96,10 +96,10 @@ export const fetchBuilds = (projectId, status) => {
 }
 export const fetchBuild = (id) => request(`/builds/${id}`)
 export const fetchBuildLog = (id) => request(`/builds/${id}/log`)
-export const triggerBuild = (projectId, pipelineId, buildParams = null, branch = null) =>
+export const triggerBuild = (projectId, pipelineId, buildParams = null, branch = null, skipDocker = false, skipK8s = false) =>
   request(`/builds/trigger?projectId=${projectId}&pipelineId=${pipelineId}`, {
     method: 'POST',
-    body: JSON.stringify({ buildParams, branch })
+    body: JSON.stringify({ buildParams, branch, skipDocker, skipK8s })
   })
 export const cancelBuild = (id) => request(`/builds/${id}/cancel`, { method: 'DELETE' })
 export const deleteBuild = (id) => request(`/builds/${id}`, { method: 'DELETE' })
