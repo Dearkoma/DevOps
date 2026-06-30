@@ -182,12 +182,14 @@ export default function InstanceList() {
     setLogsLoading(inst.id)
     try {
       const r = await getInstanceLogs(inst.id, tail)
+      console.log('[日志API] 实例', inst.id, '返回:', r)
       setLogsData(r)
       // 成功获取日志时缓存
       if (r.success && r.logs) {
         setLogsCache(prev => ({ ...prev, [inst.id]: { logs: r.logs, source: r.source, timestamp: Date.now() } }))
       }
     } catch (e) {
+      console.error('[日志API] 实例', inst.id, '失败:', e)
       setLogsData({ success: false, error: e.message, logs: '' })
     } finally {
       setLogsLoading(null)
@@ -650,8 +652,8 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                           </div>
                         ) : null}
 
-                        {/* 日志区域 — 始终显示（停止时用缓存） */}
-                        {accessInfo && !accessLoading && (
+                        {/* 日志区域 — 独立于 accessInfo，只要展开就显示 */}
+                        {!accessLoading && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #d1d5db' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                               <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>
