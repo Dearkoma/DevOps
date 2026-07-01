@@ -793,40 +793,25 @@ public class BuildService {
             // 避免 O 项目自带 yaml 硬编码指向 D 平台主库
             logBuf.append("[K8S] 使用已有: ").append(deployPath.toString()).append("\n");
             logBuf.append("[K8S] 注入本次构建的独立数据库配置...\n");
-            // ==================== 单节点环境：固定 replicas=1 ====================
-            // 单节点 K8s 集群 + hostNetwork 模式下，多个 Pod 会争抢宿主机的同一端口
-            // 例如：2 个 Pod 都想占用宿主机的 8080 端口 → 第二个 Pod 永远 FailedScheduling
-            // 解决：固定 1 个副本，避免端口冲突
-            int randomReplicas = 1;
-            logBuf.append("[K8S] 单节点环境固定 Pod 副本数: ").append(randomReplicas).append("（多副本会因 hostNetwork 端口冲突导致调度失败）\n");
+            // 端口转发方案：保持 replicas 随机 (1-3)，不强制 1
+            // hostNetwork: true 不再注入，Pod 用标准容器网络，Service 暴露 ClusterIP，外部走 kubectl port-forward
+            int randomReplicas = 1 + new java.util.Random().nextInt(3);
+            logBuf.append("[K8S] Pod 副本数: ").append(randomReplicas).append("（hostNetwork 已移除，标准 K8s 容器网络）\n");
             try {
                 String yamlContent = Files.readString(deployPath);
-                // 替换已有 replicas（list 风格或顶层 spec 形式）
+                // 替换已有 replicas
                 yamlContent = yamlContent.replaceAll(
                         "(?m)^(\\s*)replicas:\\s*\\d+\\s*$",
                         "$1replicas: " + randomReplicas);
-                // 修正 host.docker.internal（K8s 容器不解析这个地址）
-                // K8s 容器内需要用 hostNetwork 或 Node IP 访问宿主机
-                // 单节点开发环境: 使用 127.0.0.1（需 hostNetwork: true）或 host.docker.internal
-                // 更稳妥: 让用户配置 K8S_DB_HOST，否则默认用 127.0.0.1
-                String k8sDbHost = System.getenv().getOrDefault("K8S_DB_HOST", "127.0.0.1");
-                if (yamlContent.contains("host.docker.internal")) {
+                // 移除可能的 hostNetwork: true (旧兼容)
+                yamlContent = yamlContent.replaceAll(
+                        "(?m)^[ \\t]+hostNetwork:\\s*true\\s*$", "");
+                // 修正 host.docker.internal: K3s 容器内可解析(默认 192.168.127.254 → 宿主机)
+                // 如用户配置 K8S_DB_HOST 则用之
+                String k8sDbHost = System.getenv().getOrDefault("K8S_DB_HOST", "host.docker.internal");
+                if (yamlContent.contains("host.docker.internal") && !k8sDbHost.equals("host.docker.internal")) {
                     yamlContent = yamlContent.replaceAll("host\\.docker\\.internal", k8sDbHost);
-                    logBuf.append("[K8S] 已将 SPRING_DATASOURCE_URL 的 host.docker.internal 替换为 ").append(k8sDbHost).append("\n");
-                }
-                // 若没有 hostNetwork 字段，加上以便能访问到宿主机
-                // 注意：hostNetwork 是 PodSpec 字段（spec.template.spec 的兄弟，不是 containers 内部）
-                // 用 \n 锚定避免 \s+ 跨段吞掉前面的空白导致错位
-                if (!yamlContent.contains("hostNetwork:") && !yamlContent.contains("hostNetwork:")) {
-                    java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-                            "([ \\t]+)(containers:)[ \\t]*\\n");
-                    java.util.regex.Matcher m = p.matcher(yamlContent);
-                    if (m.find()) {
-                        String indent = m.group(1);
-                        // 在 containers 之前、同一缩进级别插入 hostNetwork
-                        yamlContent = m.replaceFirst(indent + "hostNetwork: true\n" + indent + "containers:\n");
-                        logBuf.append("[K8S] 已自动添加 hostNetwork: true (K8s 容器访问宿主机数据库)\n");
-                    }
+                    logBuf.append("[K8S] 已将 host.docker.internal 替换为 ").append(k8sDbHost).append("\n");
                 }
                 Files.writeString(deployPath, yamlContent);
                 logBuf.append("[K8S] 已更新 deployment.yaml replicas=").append(randomReplicas).append("\n");
@@ -979,21 +964,17 @@ public class BuildService {
                                 "(- containerPort:[^\\n]+\\n)",
                                 "$1" + envInjection);
                     } else {
-                        // 已存在 SPRING_DATASOURCE_URL 时，把 host.docker.internal 替换为 K8s 可达地址
-                        String k8sDbHost = System.getenv().getOrDefault("K8S_DB_HOST", "127.0.0.1");
-                        if (modified.contains("host.docker.internal")) {
+                        // 已存在 SPRING_DATASOURCE_URL 时，把 host.docker.internal 保留（K3s 可解析）
+                        // K8S_DB_HOST 环境变量可覆盖
+                        String k8sDbHost = System.getenv().getOrDefault("K8S_DB_HOST", "host.docker.internal");
+                        if (modified.contains("host.docker.internal") && !k8sDbHost.equals("host.docker.internal")) {
                             modified = modified.replaceAll("host\\.docker\\.internal", k8sDbHost);
                         }
                     }
 
-                    // 6) 自动添加 hostNetwork: true（K8s 容器访问宿主机 MySQL 必须）
-                    // 正确位置: spec.template.spec.containers 之前（spec 的兄弟字段）
-                    if (!modified.contains("hostNetwork:")) {
-                        // 找到 containers: 之前的位置（在 spec.containers 同级）
-                        modified = modified.replaceFirst(
-                                "(\\n)([ \\t]*containers:)",
-                                "$1      hostNetwork: true\n$2");
-                    }
+                    // 6) 不再自动添加 hostNetwork: true
+                    // 改用 K8s 标准服务暴露 (ClusterIP + kubectl port-forward 隧道)
+                    // Pod 用默认容器网络,通过 host.docker.internal 访问宿主机 MySQL
 
                     if (!modified.equals(original)) {
                         Files.writeString(deployPath, modified);
@@ -1024,10 +1005,10 @@ public class BuildService {
         }
         logBuf.append("[K8S] 部署完成\n");
 
-        // ==================== 检测端口冲突，给出明确错误 ====================
-        // hostNetwork: true 模式下 Pod 监听宿主机端口
-        // 如果宿主机 8080 已被 D 平台后端占用 → K8s Pod 永远 Pending
-        // 提前检测并提示用户停止占用进程
+        // ==================== 检测宿主机端口冲突 ====================
+        // hostNetwork 已移除：Pod 不再直接监听宿主机端口
+        // kubectl port-forward 走 30000-32767 端口池，由 D 平台负责避免冲突
+        // 这里保留提示：避免 O 项目和 D 平台本身抢宿主机 8080
         String[] hostPorts = {"8080", "80", "3000", "3306"};
         StringBuilder portConflicts = new StringBuilder();
         for (String port : hostPorts) {
@@ -1039,10 +1020,22 @@ public class BuildService {
                         new java.io.InputStreamReader(proc.getInputStream()))) {
                     String l;
                     while ((l = r.readLine()) != null) {
-                        // 匹配 ":8080 ... LISTENING"
                         if (l.contains(":" + port) && l.contains("LISTENING")) {
                             String[] parts = l.trim().split("\\s+");
                             String pid = parts[parts.length - 1];
+                            // 排除 K8s 自身进程
+                            try {
+                                ProcessBuilder namePb = new ProcessBuilder("tasklist", "/FI", "PID eq " + pid, "/NH");
+                                namePb.redirectErrorStream(true);
+                                Process nameProc = namePb.start();
+                                try (java.io.BufferedReader nr = new java.io.BufferedReader(
+                                        new java.io.InputStreamReader(nameProc.getInputStream()))) {
+                                    String nameLine = nr.readLine();
+                                    if (nameLine != null && (nameLine.contains("kube") || nameLine.contains("docker"))) {
+                                        continue;
+                                    }
+                                }
+                            } catch (Exception ignored) {}
                             portConflicts.append("  - 宿主机端口 ").append(port)
                                     .append(" 被 PID ").append(pid).append(" 占用\n");
                             break;
@@ -1053,11 +1046,10 @@ public class BuildService {
             } catch (Exception ignored) {}
         }
         if (portConflicts.length() > 0) {
-            logBuf.append("[K8S] ⚠️ 检测到宿主机端口冲突（hostNetwork 模式下 Pod 监听宿主机端口）:\n");
+            logBuf.append("[K8S] ⚠️ 检测到宿主机端口占用 (仅作提示,hostNetwork 已移除,不阻塞部署):\n");
             logBuf.append(portConflicts);
-            logBuf.append("[HINT] 单节点 K8s + hostNetwork: true 时，多个应用不能都用同一端口\n");
-            logBuf.append("[HINT] 解决方法: 1) 停止 D 平台后端（PID 上面）让出 8080; 2) 改 O 项目的 deployment.yaml 不用 hostNetwork; 3) 删除多余的占位 Pod\n");
-            logBuf.append("[HINT] 删除占位 Pod: kubectl delete pod devops-placeholder -n devops --force --grace-period=0\n");
+            logBuf.append("[HINT] hostNetwork: true 已不再注入。Pod 通过 ClusterIP + kubectl port-forward 暴露\n");
+            logBuf.append("[HINT] D 平台一键转发时会从 30000-32767 自动选可用端口\n");
         }
 
         // ==================== 部署后真实状态检查 ====================
@@ -1179,19 +1171,30 @@ public class BuildService {
                 : DatabaseProvisioningService.defaultDbName(project.getCode(), "0");
 
         // 数据库连接：H2 模式零依赖；MySQL 模式注入连接信息（db_type 为 NULL 时默认 MySQL）
+        // K8s 容器内访问宿主机 MySQL 唯一稳定方案：用 host.docker.internal (K3s 内置 DNS → 192.168.127.254)
+        // 不要 hostNetwork: true（Pod 内 127.0.0.1 = Pod 自己的 loopback；多副本还会抢宿主端口）
         boolean useH2 = "H2".equalsIgnoreCase(project.getDbType());
-        // K8s 容器需要访问宿主机 MySQL，host.docker.internal 在 K8s 容器里不解析
-        // 单节点 K8s: 用 127.0.0.1 + hostNetwork: true
-        // 可通过环境变量 K8S_DB_HOST 自定义（如 docker-desktop 用户可写 host.docker.internal）
-        String dbHost = useH2 ? (project.getDbHost() != null ? project.getDbHost() : "host.docker.internal")
-                : (project.getDbHost() != null ? project.getDbHost() : System.getenv().getOrDefault("K8S_DB_HOST", "127.0.0.1"));
-        // K8s 场景默认开启 hostNetwork，方便访问宿主机
-        boolean needHostNetwork = !useH2;
+        String dbHost;
+        if (useH2) {
+            dbHost = project.getDbHost() != null && !project.getDbHost().isBlank()
+                    ? project.getDbHost() : "host.docker.internal";
+        } else {
+            String envK8sDbHost = System.getenv("K8S_DB_HOST");
+            if (envK8sDbHost != null && !envK8sDbHost.isBlank()) {
+                dbHost = envK8sDbHost;
+            } else if (project.getDbHost() != null && !project.getDbHost().isBlank()) {
+                dbHost = project.getDbHost();
+            } else {
+                // K3s (Rancher Desktop) 唯一稳定的宿主机 MySQL 访问方式
+                dbHost = "host.docker.internal";
+            }
+        }
+        // 不再开启 hostNetwork：避免端口冲突 + 端口转发方案可正常工作
         String envSection = "";
-        String hostNetworkLine = needHostNetwork ? "          hostNetwork: true\n" : "";
         if (!useH2) {
             int dbPort = project.getDbPort() != null ? project.getDbPort() : 3306;
-            String dbUser = project.getDbUsername() != null ? project.getDbUsername() : "root";
+            String dbUser = project.getDbUsername() != null && !project.getDbUsername().isBlank()
+                    ? project.getDbUsername() : "root";
             String dbPass = project.getDbPassword() != null ? project.getDbPassword() : "";
             envSection =
                 "          env:\n" +
@@ -1241,7 +1244,6 @@ public class BuildService {
                 "      labels:\n" +
                 "        app: " + appName + "\n" +
                 "    spec:\n" +
-                hostNetworkLine +
                 "      containers:\n" +
                 "        - name: " + appName + "\n" +
                 "          image: " + image + "\n" +
