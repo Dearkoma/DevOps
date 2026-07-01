@@ -9,6 +9,7 @@
 
 # 前端构建产物（开发模式不需要，build 时自动生成）
 **/src/main/resources/static/
+frontend/dist/
 
 # 日志与运行时产物
 **/logs/
