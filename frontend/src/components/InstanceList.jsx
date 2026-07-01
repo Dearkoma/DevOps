@@ -271,8 +271,11 @@ export default function InstanceList() {
     setStopForwardId(id)
     try {
       const r = await stopForward(id)
-      alert(r?.success ? (r?.message || '已停止') : (r?.error || '操作失败'))
-      if (r?.success) loadAll()
+      if (r?.success) {
+        loadAll()
+      } else {
+        alert(r?.error || '操作失败')
+      }
     } catch (e) { alert('停止转发失败: ' + e.message) }
     finally { setStopForwardId(null) }
   }
