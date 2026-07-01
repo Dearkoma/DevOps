@@ -764,26 +764,63 @@ public class BuildService {
 
                     String modified = original;
 
-                    // 1) 替换已有的 SPRING_DATASOURCE_URL 值（保留 yaml 里的格式和引号风格）
+                    // 1) 替换 SPRING_DATASOURCE_URL 值（支持多种写法）
+                    //    a) list 风格: SPRING_DATASOURCE_URL: "jdbc:..."
+                    //    b) map 风格:   SPRING_DATASOURCE_URL\n  value: "jdbc:..."
                     modified = modified.replaceAll(
                             "SPRING_DATASOURCE_URL\\s*:\\s*\"[^\"]*\"",
                             "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
-                    // 单引号风格
+                    // 单引号 list 风格
                     modified = modified.replaceAll(
                             "SPRING_DATASOURCE_URL\\s*:\\s*'[^']*'",
                             "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
-                    // 无引号风格
+                    // 无引号 list 风格
                     modified = modified.replaceAll(
                             "SPRING_DATASOURCE_URL\\s*:\\s*[^\\s\"']+",
                             "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
+                    // map 风格：name 后面几行的 value: "..."
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
+                            "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*'[^']*'",
+                            "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*[^\\s\"']+",
+                            "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
 
-                    // 2) 替换用户名密码
+                    // 2) 替换用户名密码（同样兼容 list/map 风格）
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_USERNAME\\s*:\\s*\"[^\"]*\"",
+                            "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_USERNAME\\s*:\\s*'[^']*'",
+                            "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
                     modified = modified.replaceAll(
                             "SPRING_DATASOURCE_USERNAME\\s*:\\s*[^\\n]+",
                             "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
                     modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_USERNAME[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
+                            "SPRING_DATASOURCE_USERNAME\n              value: \"" + dbUser + "\"");
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_USERNAME[\\s\\S]{0,30}?value\\s*:\\s*[^\\n]+",
+                            "SPRING_DATASOURCE_USERNAME\n              value: \"" + dbUser + "\"");
+
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_PASSWORD\\s*:\\s*\"[^\"]*\"",
+                            "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_PASSWORD\\s*:\\s*'[^']*'",
+                            "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
+                    modified = modified.replaceAll(
                             "SPRING_DATASOURCE_PASSWORD\\s*:\\s*[^\\n]+",
                             "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_PASSWORD[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
+                            "SPRING_DATASOURCE_PASSWORD\n              value: \"" + dbPass + "\"");
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_PASSWORD[\\s\\S]{0,30}?value\\s*:\\s*[^\\n]+",
+                            "SPRING_DATASOURCE_PASSWORD\n              value: \"" + dbPass + "\"");
 
                     if (!modified.equals(original)) {
                         Files.writeString(deployPath, modified);
