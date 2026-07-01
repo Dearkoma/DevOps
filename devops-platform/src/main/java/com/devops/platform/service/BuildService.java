@@ -779,70 +779,106 @@ public class BuildService {
 
                     String modified = original;
 
-                    // 1) 替换 SPRING_DATASOURCE_URL 值（支持多种写法）
-                    //    a) list 风格: SPRING_DATASOURCE_URL: "jdbc:..."
-                    //    b) map 风格:   SPRING_DATASOURCE_URL\n  value: "jdbc:..."
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_URL\\s*:\\s*\"[^\"]*\"",
-                            "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
-                    // 单引号 list 风格
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_URL\\s*:\\s*'[^']*'",
-                            "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
-                    // 无引号 list 风格
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_URL\\s*:\\s*[^\\s\"']+",
-                            "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
-                    // map 风格：name 后面几行的 value: "..."
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
-                            "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*'[^']*'",
-                            "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*[^\\s\"']+",
-                            "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
+                    // 注入或替换 env 段：兼容三种情况
+                    // A) 没有 env 段 → 在 container 块内追加 env
+                    // B) 有 env 段但没 SPRING_DATASOURCE_URL → 在 env 末尾追加
+                    // C) 有 SPRING_DATASOURCE_URL → 替换它的值
 
-                    // 2) 替换用户名密码（同样兼容 list/map 风格）
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_USERNAME\\s*:\\s*\"[^\"]*\"",
-                            "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_USERNAME\\s*:\\s*'[^']*'",
-                            "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_USERNAME\\s*:\\s*[^\\n]+",
-                            "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_USERNAME[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
-                            "SPRING_DATASOURCE_USERNAME\n              value: \"" + dbUser + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_USERNAME[\\s\\S]{0,30}?value\\s*:\\s*[^\\n]+",
-                            "SPRING_DATASOURCE_USERNAME\n              value: \"" + dbUser + "\"");
+                    if (modified.contains("SPRING_DATASOURCE_URL")) {
+                        // 情况 C: 替换现有值
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_URL\\s*:\\s*\"[^\"]*\"",
+                                "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_URL\\s*:\\s*'[^']*'",
+                                "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_URL\\s*:\\s*[^\\s\"']+",
+                                "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
+                                "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*'[^']*'",
+                                "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_URL[\\s\\S]{0,30}?value\\s*:\\s*[^\\s\"']+",
+                                "SPRING_DATASOURCE_URL\n              value: \"" + jdbcUrl + "\"");
+                    } else if (modified.matches("(?s).*\\n\\s*env:\\s*\\n.*")) {
+                        // 情况 B: 有 env 段但没 URL → 在 env 段末尾追加
+                        // 找到 env: 的位置，向后追加新条目到 env 块结束
+                        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                                "(env:\\s*\\n)([\\s\\S]*?)(?=\\n\\s*-|\\n[a-zA-Z])");
+                        java.util.regex.Matcher m = p.matcher(modified);
+                        if (m.find()) {
+                            String envBlock = m.group(2);
+                            String indent = envBlock.isEmpty() ? "            " : "            ";
+                            String newEnv = "            - name: SPRING_DATASOURCE_URL\n"
+                                    + "              value: \"" + jdbcUrl + "\"\n"
+                                    + "            - name: SPRING_DATASOURCE_USERNAME\n"
+                                    + "              value: \"" + dbUser + "\"\n"
+                                    + "            - name: SPRING_DATASOURCE_PASSWORD\n"
+                                    + "              value: \"" + dbPass + "\"\n";
+                            modified = modified.replace(m.group(0), m.group(1) + envBlock + newEnv);
+                        }
+                    } else {
+                        // 情况 A: 没有 env 段 → 在 ports 段后插入 env 段
+                        // 找到第一个 container 块（以 "- name:" 开始）的结束位置之前插入
+                        // 简化: 在 "ports:" 段后插入 env
+                        String envInjection = "\n          env:\n"
+                                + "            - name: SPRING_DATASOURCE_URL\n"
+                                + "              value: \"" + jdbcUrl + "\"\n"
+                                + "            - name: SPRING_DATASOURCE_USERNAME\n"
+                                + "              value: \"" + dbUser + "\"\n"
+                                + "            - name: SPRING_DATASOURCE_PASSWORD\n"
+                                + "              value: \"" + dbPass + "\"\n";
+                        // 找到 "containerPort: 8080" 行后插入
+                        modified = modified.replaceFirst(
+                                "(- containerPort:[^\\n]+\\n)",
+                                "$1" + envInjection);
+                    }
 
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_PASSWORD\\s*:\\s*\"[^\"]*\"",
-                            "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_PASSWORD\\s*:\\s*'[^']*'",
-                            "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_PASSWORD\\s*:\\s*[^\\n]+",
-                            "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_PASSWORD[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
-                            "SPRING_DATASOURCE_PASSWORD\n              value: \"" + dbPass + "\"");
-                    modified = modified.replaceAll(
-                            "SPRING_DATASOURCE_PASSWORD[\\s\\S]{0,30}?value\\s*:\\s*[^\\n]+",
-                            "SPRING_DATASOURCE_PASSWORD\n              value: \"" + dbPass + "\"");
+                    // 用户名密码处理（同样的逻辑）
+                    if (modified.contains("SPRING_DATASOURCE_USERNAME")) {
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_USERNAME\\s*:\\s*\"[^\"]*\"",
+                                "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_USERNAME\\s*:\\s*'[^']*'",
+                                "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_USERNAME\\s*:\\s*[^\\n]+",
+                                "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_USERNAME[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
+                                "SPRING_DATASOURCE_USERNAME\n              value: \"" + dbUser + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_USERNAME[\\s\\S]{0,30}?value\\s*:\\s*[^\\n]+",
+                                "SPRING_DATASOURCE_USERNAME\n              value: \"" + dbUser + "\"");
+                    }
+                    if (modified.contains("SPRING_DATASOURCE_PASSWORD")) {
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_PASSWORD\\s*:\\s*\"[^\"]*\"",
+                                "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_PASSWORD\\s*:\\s*'[^']*'",
+                                "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_PASSWORD\\s*:\\s*[^\\n]+",
+                                "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_PASSWORD[\\s\\S]{0,30}?value\\s*:\\s*\"[^\"]*\"",
+                                "SPRING_DATASOURCE_PASSWORD\n              value: \"" + dbPass + "\"");
+                        modified = modified.replaceAll(
+                                "SPRING_DATASOURCE_PASSWORD[\\s\\S]{0,30}?value\\s*:\\s*[^\\n]+",
+                                "SPRING_DATASOURCE_PASSWORD\n              value: \"" + dbPass + "\"");
+                    }
 
                     if (!modified.equals(original)) {
                         Files.writeString(deployPath, modified);
-                        logBuf.append("[K8S] 已替换 SPRING_DATASOURCE_URL 指向: ").append(jdbcUrl).append("\n");
+                        logBuf.append("[K8S] 已注入/替换 SPRING_DATASOURCE_URL 指向: ").append(jdbcUrl).append("\n");
                     } else {
-                        logBuf.append("[K8S] 警告: 未找到 SPRING_DATASOURCE_URL，O 项目可能使用自己的 application.yml\n");
-                        logBuf.append("[K8S] Pod 启动后可能连到错误的数据库\n");
+                        logBuf.append("[K8S] 警告: 未修改 deployment.yaml，O 项目可能使用自己的 application.yml\n");
                     }
                 } catch (IOException e) {
                     logBuf.append("[WARN] 修改 deployment.yaml 失败: ").append(e.getMessage()).append("\n");
