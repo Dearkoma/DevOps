@@ -262,14 +262,15 @@ export default function InstanceList() {
     setExposingId(id)
     try {
       const r = await exposeToExternal(id)
-      if (r?.success) {
-        await loadAll()
-        // 重新刷新当前展开行的 accessInfo，否则转发状态不更新
-        if (expandedId === id) {
-          setAccessInfo(await getAccessInfo(id))
-        }
-      } else {
+      if (!r?.success) {
         alert(r?.error || '操作失败')
+        return
+      }
+      // 转发操作在服务端是异步的，等一小会再刷新确保状态已更新
+      await new Promise(resolve => setTimeout(resolve, 800))
+      await loadAll()
+      if (expandedId === id) {
+        setAccessInfo(await getAccessInfo(id))
       }
     } catch (e) { alert('转发失败: ' + e.message) }
     finally { setExposingId(null) }
@@ -280,13 +281,14 @@ export default function InstanceList() {
     setStopForwardId(id)
     try {
       const r = await stopForward(id)
-      if (r?.success) {
-        await loadAll()
-        if (expandedId === id) {
-          setAccessInfo(await getAccessInfo(id))
-        }
-      } else {
+      if (!r?.success) {
         alert(r?.error || '操作失败')
+        return
+      }
+      await new Promise(resolve => setTimeout(resolve, 800))
+      await loadAll()
+      if (expandedId === id) {
+        setAccessInfo(await getAccessInfo(id))
       }
     } catch (e) { alert('停止转发失败: ' + e.message) }
     finally { setStopForwardId(null) }
