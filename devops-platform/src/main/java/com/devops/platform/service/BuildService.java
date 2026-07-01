@@ -763,10 +763,12 @@ public class BuildService {
             // 避免 O 项目自带 yaml 硬编码指向 D 平台主库
             logBuf.append("[K8S] 使用已有: ").append(deployPath.toString()).append("\n");
             logBuf.append("[K8S] 注入本次构建的独立数据库配置...\n");
-            // ==================== 随机化 replicas 数量 (1-3) ====================
-            // 让 K8s 自动调度多副本（适合单节点开发也能用）
-            int randomReplicas = 1 + new java.util.Random().nextInt(3);
-            logBuf.append("[K8S] 随机分配 Pod 副本数: ").append(randomReplicas).append("\n");
+            // ==================== 单节点环境：固定 replicas=1 ====================
+            // 单节点 K8s 集群 + hostNetwork 模式下，多个 Pod 会争抢宿主机的同一端口
+            // 例如：2 个 Pod 都想占用宿主机的 8080 端口 → 第二个 Pod 永远 FailedScheduling
+            // 解决：固定 1 个副本，避免端口冲突
+            int randomReplicas = 1;
+            logBuf.append("[K8S] 单节点环境固定 Pod 副本数: ").append(randomReplicas).append("（多副本会因 hostNetwork 端口冲突导致调度失败）\n");
             try {
                 String yamlContent = Files.readString(deployPath);
                 // 替换已有 replicas（list 风格或顶层 spec 形式）
