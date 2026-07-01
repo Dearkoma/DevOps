@@ -102,9 +102,20 @@ public class BuildController {
         }
     }
 
-    /** 检查项目工作目录状态 —— 验证 Git 克隆情况和构建文件 */
+    /** 检查项目工作目录状态 — 验证 Git 克隆情况和构建文件 */
     @GetMapping("/workspace-check")
     public ResponseEntity<?> workspaceCheck(@RequestParam Long projectId) {
         return ResponseEntity.ok(buildService.checkWorkspace(projectId));
+    }
+
+    /** 检查数据库名是否与已有项目冲突 */
+    @GetMapping("/check-db-conflict")
+    public ResponseEntity<?> checkDbConflict(@RequestParam String dbName, @RequestParam Long projectId) {
+        try {
+            var result = buildService.checkDbConflict(dbName, projectId);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 }

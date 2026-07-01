@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { fetchPipelines, createPipeline, updatePipeline, deletePipeline, fetchProjects, triggerBuild } from '../api'
+import { fetchPipelines, createPipeline, updatePipeline, deletePipeline, fetchProjects, triggerBuild, checkDbConflict } from '../api'
 
 const DEFAULT_STAGES = JSON.stringify([
   { name: '编译构建', steps: [{ name: 'Maven编译', type: 'SHELL', command: 'mvn clean package -DskipTests' }] },
@@ -58,6 +58,22 @@ export default function PipelineList() {
         const proj = getProjectForBuild()
         return proj?.code ? `devops_${sanitizeDbName(proj.code)}` : 'devops_app'
       })()
+
+  // 数据库名冲突检测（实时防抖）
+  const [dbConflict, setDbConflict] = useState(null)
+  useEffect(() => {
+    if (!showBuildModal || !effectiveDbPreview || !buildPendingPipeline) {
+      setDbConflict(null)
+      return
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const r = await checkDbConflict(effectiveDbPreview, buildPendingPipeline.projectId)
+        setDbConflict(r)
+      } catch { setDbConflict(null) }
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [effectiveDbPreview, showBuildModal, buildPendingPipeline])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -385,7 +401,15 @@ export default function PipelineList() {
                 />
                 <span style={{ fontSize: 11, color: '#047857' }}>
                   📌 将创建数据库: <strong>{effectiveDbPreview}</strong>
+                  {dbConflict?.reusedByCurrent && (
+                    <span style={{ color: '#d97706', marginLeft: 8 }}>⚠️ 已存在（同项目重建）</span>
+                  )}
                 </span>
+                {dbConflict?.conflict && (
+                  <span style={{ display: 'block', fontSize: 11, color: '#dc2626', marginTop: 4, padding: '6px 10px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fecaca' }}>
+                    ⛔ 数据库已存在且被 <strong>{dbConflict.conflictProject}</strong> 占用！请更换数据库名
+                  </span>
+                )}
               </label>
             </div>
             <div style={{

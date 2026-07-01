@@ -6,7 +6,11 @@ import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 数据库供应服务 — 为部署的 A 项目（下游项目）自动创建独立数据库。
@@ -31,38 +35,120 @@ public class DatabaseProvisioningService {
     private String datasourcePassword;
 
     /**
-     * 为 A 项目创建独立数据库。
-     *
-     * @param dbName 数据库名称（建议格式: devops_{projectCode}）
-     * @return 创建成功返回 true；数据库已存在记 info 日志也返回 true
+     * 数据库创建结果。
      */
-    public boolean createDatabase(String dbName) {
-        if (dbName == null || dbName.isBlank()) {
-            log.warn("dbName 为空，跳过数据库创建");
-            return false;
+    public static class CreateResult {
+        public final boolean success;
+        public final String dbName;         // 净化后的数据库名
+        public final boolean alreadyExisted; // 物理上已存在
+        public final String conflictProjectName; // 冲突项目名（null 表示无冲突）
+        public final Long conflictProjectId;     // 冲突项目ID
+
+        private CreateResult(boolean success, String dbName, boolean alreadyExisted,
+                             String conflictProjectName, Long conflictProjectId) {
+            this.success = success;
+            this.dbName = dbName;
+            this.alreadyExisted = alreadyExisted;
+            this.conflictProjectName = conflictProjectName;
+            this.conflictProjectId = conflictProjectId;
         }
 
-        // 清理数据库名中的特殊字符（防止 SQL 注入和非法名称）
-        String safeName = sanitizeDbName(dbName);
+        public static CreateResult created(String dbName) {
+            return new CreateResult(true, dbName, false, null, null);
+        }
 
-        // 提取 MySQL 连接基础 URL（去掉数据库名和参数部分，用于执行 DDL）
+        public static CreateResult existedNoConflict(String dbName) {
+            return new CreateResult(true, dbName, true, null, null);
+        }
+
+        public static CreateResult conflict(String dbName, String conflictProject, Long conflictProjectId) {
+            return new CreateResult(false, dbName, true, conflictProject, conflictProjectId);
+        }
+    }
+
+    /**
+     * 检查指定数据库在 MySQL 中是否已物理存在。
+     */
+    public boolean databaseExists(String dbName) {
+        String safeName = sanitizeDbName(dbName);
+        String baseUrl = extractBaseJdbcUrl(datasourceUrl);
+        try (Connection conn = DriverManager.getConnection(baseUrl, datasourceUsername, datasourcePassword);
+             Statement stmt = conn.createStatement()) {
+            ResultSet rs = stmt.executeQuery(
+                    "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '" + safeName.replace("'", "''") + "'");
+            return rs.next();
+        } catch (Exception e) {
+            log.warn("检查数据库是否存在时出错: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 为 A 项目创建独立数据库（带冲突检测）。
+     * <p>
+     * 冲突判定：
+     * 1. 数据库物理已存在 + 有其他项目的构建记录使用此库名 → 冲突
+     * 2. 数据库物理已存在 + 只有当前项目的构建记录 → 允许（同项目重建）
+     * 3. 数据库物理不存在 → 正常创建
+     *
+     * @param dbName          用户输入或默认的数据库名
+     * @param currentProjectId 当前正在构建的项目ID
+     * @param buildRepository  构建记录仓库（用于检测跨项目占用）
+     * @return CreateResult，success=false 为冲突
+     */
+    public CreateResult createDatabase(String dbName, Long currentProjectId,
+                                        com.devops.platform.repository.BuildRepository buildRepository) {
+        if (dbName == null || dbName.isBlank()) {
+            log.warn("dbName 为空，跳过数据库创建");
+            return new CreateResult(false, "", false, null, null);
+        }
+
+        String safeName = sanitizeDbName(dbName);
         String baseUrl = extractBaseJdbcUrl(datasourceUrl);
 
-        try (Connection conn = DriverManager.getConnection(
-                baseUrl, datasourceUsername, datasourcePassword);
+        // 1) 检查 MySQL 中是否已存在
+        boolean exists = databaseExists(safeName);
+
+        // 2) 检查跨项目冲突
+        if (exists && currentProjectId != null && buildRepository != null) {
+            List<com.devops.platform.entity.Build> conflictBuilds =
+                    buildRepository.findByDbNameAndProjectIdNot(safeName, currentProjectId);
+            if (!conflictBuilds.isEmpty()) {
+                // 数据库已被其他项目占用
+                Long otherProjectId = conflictBuilds.get(0).getProjectId();
+                log.warn("数据库 '{}' 已被项目 #{} 占用，当前项目 #{} 无法使用", safeName, otherProjectId, currentProjectId);
+                return CreateResult.conflict(safeName, "Project#" + otherProjectId, otherProjectId);
+            }
+        }
+
+        // 3) 执行创建
+        try (Connection conn = DriverManager.getConnection(baseUrl, datasourceUsername, datasourcePassword);
              Statement stmt = conn.createStatement()) {
 
-            String sql = String.format(
-                    "CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
-                    safeName);
-            stmt.executeUpdate(sql);
-            log.info("数据库 '{}' 创建成功（或已存在）", safeName);
-            return true;
+            if (!exists) {
+                String sql = String.format(
+                        "CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
+                        safeName);
+                stmt.executeUpdate(sql);
+                log.info("数据库 '{}' 创建成功", safeName);
+                return CreateResult.created(safeName);
+            } else {
+                log.info("数据库 '{}' 已存在（同项目重建，无冲突）", safeName);
+                return CreateResult.existedNoConflict(safeName);
+            }
 
         } catch (Exception e) {
             log.error("创建数据库 '{}' 失败: {}", safeName, e.getMessage());
-            return false;
+            return new CreateResult(false, safeName, exists, null, null);
         }
+    }
+
+    /**
+     * 兼容旧调用（无冲突检测，建议迁移到 {@link #createDatabase(String, Long, com.devops.platform.repository.BuildRepository)}）。
+     */
+    public boolean createDatabase(String dbName) {
+        CreateResult r = createDatabase(dbName, null, null);
+        return r.success;
     }
 
     /**

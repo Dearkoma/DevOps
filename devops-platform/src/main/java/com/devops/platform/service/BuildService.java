@@ -105,6 +105,32 @@ public class BuildService {
         }
     }
 
+    /**
+     * 检查数据库名是否与其他项目冲突（构建弹窗实时预览用）。
+     * @return Map with keys: conflict (boolean), conflictProject, dbExists
+     */
+    public Map<String, Object> checkDbConflict(String dbName, Long currentProjectId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String safeName = DatabaseProvisioningService.sanitizeDbName(dbName);
+        result.put("dbName", safeName);
+        result.put("conflict", false);
+
+        boolean exists = dbProvisioningService.databaseExists(safeName);
+        result.put("dbExists", exists);
+
+        if (exists && currentProjectId != null) {
+            List<Build> conflictBuilds = buildRepository.findByDbNameAndProjectIdNot(safeName, currentProjectId);
+            if (!conflictBuilds.isEmpty()) {
+                result.put("conflict", true);
+                result.put("conflictProject", "Project#" + conflictBuilds.get(0).getProjectId());
+                result.put("conflictProjectId", conflictBuilds.get(0).getProjectId());
+            } else {
+                result.put("reusedByCurrent", true); // 同项目重建
+            }
+        }
+        return result;
+    }
+
     /** 触发构建（简便重载） */
     public Build triggerBuild(Long projectId, Long pipelineId, String triggeredBy) {
         return triggerBuild(projectId, pipelineId, triggeredBy, null, null, false, false, null);
@@ -128,8 +154,17 @@ public class BuildService {
                 ? DatabaseProvisioningService.sanitizeDbName(dbName)
                 : DatabaseProvisioningService.defaultDbName(project.getCode());
 
-        // 在构建前先创建独立数据库（失败不阻塞构建，部署时还有一次兜底）
-        dbProvisioningService.createDatabase(effectiveDbName);
+        // 在构建前先创建独立数据库（带冲突检测）
+        DatabaseProvisioningService.CreateResult dbResult =
+                dbProvisioningService.createDatabase(effectiveDbName, projectId, buildRepository);
+        if (!dbResult.success) {
+            if (dbResult.conflictProjectId != null) {
+                throw new RuntimeException(String.format(
+                        "数据库 '%s' 已被项目 %s 占用，请更换数据库名后重试",
+                        dbResult.dbName, dbResult.conflictProjectName));
+            }
+            throw new RuntimeException("数据库 '" + effectiveDbName + "' 创建失败");
+        }
 
         Build build = new Build();
         build.setProjectId(projectId);

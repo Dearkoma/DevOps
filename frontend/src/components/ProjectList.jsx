@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { fetchProjects, createProject, updateProject, deleteProject, fetchPipelines, fetchEnvironments, triggerBuild, fetchBuilds, checkWorkspace, previewProjectCode, previewProjectFile } from '../api'
+import { fetchProjects, createProject, updateProject, deleteProject, fetchPipelines, fetchEnvironments, triggerBuild, fetchBuilds, checkWorkspace, previewProjectCode, previewProjectFile, checkDbConflict } from '../api'
 
 const LANGUAGES = ['Java', 'Node.js', 'Python', 'Go', 'Rust', 'Other']
 const FRAMEWORKS = ['Spring Boot', 'Express', 'Django', 'Gin', 'Other']
@@ -56,6 +56,22 @@ export default function ProjectList() {
   const effectiveDbPreview = buildDbName
     ? sanitizeDbName(buildDbName)
     : (detailProject?.code ? `devops_${sanitizeDbName(detailProject.code)}` : 'devops_app')
+
+  // 数据库名冲突检测（实时防抖）
+  const [dbConflict, setDbConflict] = useState(null) // null=未检测, {conflict, conflictProject, reusedByCurrent, dbExists}
+  useEffect(() => {
+    if (!showBuildModal || !effectiveDbPreview || !buildPendingPipeline) {
+      setDbConflict(null)
+      return
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const r = await checkDbConflict(effectiveDbPreview, buildPendingPipeline.projectId)
+        setDbConflict(r)
+      } catch { setDbConflict(null) }
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [effectiveDbPreview, showBuildModal, buildPendingPipeline])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -646,7 +662,15 @@ export default function ProjectList() {
                 />
                 <span style={{ fontSize: 11, color: '#047857' }}>
                   📌 将创建数据库: <strong>{effectiveDbPreview}</strong>
+                  {dbConflict?.reusedByCurrent && (
+                    <span style={{ color: '#d97706', marginLeft: 8 }}>⚠️ 已存在（同项目重建）</span>
+                  )}
                 </span>
+                {dbConflict?.conflict && (
+                  <span style={{ display: 'block', fontSize: 11, color: '#dc2626', marginTop: 4, padding: '6px 10px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fecaca' }}>
+                    ⛔ 数据库已存在且被 <strong>{dbConflict.conflictProject}</strong> 占用！请更换数据库名
+                  </span>
+                )}
               </label>
             </div>
 

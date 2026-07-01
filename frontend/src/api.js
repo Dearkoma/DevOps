@@ -96,6 +96,8 @@ export const fetchBuilds = (projectId, status) => {
 }
 export const fetchBuild = (id) => request(`/builds/${id}`)
 export const fetchBuildLog = (id) => request(`/builds/${id}/log`)
+export const checkDbConflict = (dbName, projectId) =>
+  request(`/builds/check-db-conflict?dbName=${encodeURIComponent(dbName)}&projectId=${projectId}`)
 export const triggerBuild = (projectId, pipelineId, buildParams = null, branch = null, skipDocker = false, skipK8s = false, dbName = null) =>
   request(`/builds/trigger?projectId=${projectId}&pipelineId=${pipelineId}`, {
     method: 'POST',
