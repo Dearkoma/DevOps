@@ -582,13 +582,61 @@ public class InstanceMonitorService {
     }
 
     /** 从实例名推导 K8s Service 名 */
+    /**
+     * 自适应查找 K8s Service 名：
+     * 1. 查询命名空间下所有 Service，通过 selector 匹配 Deployment 的 label
+     * 2. 如果没找到，尝试用 projectCode-svc 约定名
+     * 3. 都不行就返回约定名让调用方报错
+     */
     private String resolveK8sServiceName(ServiceInstance inst) {
-        // K8s Service 名始终是 <projectCode>-svc
-        // k8sPodName 字段存的就是 projectCode，优先用它
-        if (inst.getK8sPodName() != null && !inst.getK8sPodName().isBlank()) {
-            return inst.getK8sPodName() + "-svc";
+        String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
+        String deploymentName = inst.getK8sPodName(); // k8sPodName 存的是 projectCode = Deployment 名
+
+        // 优先：查 K8s 集群实际存在的 Service
+        if (deploymentName != null && !deploymentName.isBlank()) {
+            // 方式1: 通过 Deployment 的 selector label 查找匹配的 Service
+            ProcessResult svcR = kubectl("get", "svc", "-n", ns, "-o",
+                    "jsonpath={range .items[*]}{.metadata.name}{\"\\t\"}{.spec.selector}{\"\\n\"}{end}");
+            if (svcR.success && !svcR.output.isBlank()) {
+                for (String line : svcR.output.split("\n")) {
+                    String[] parts = line.split("\t", 2);
+                    if (parts.length < 2) continue;
+                    String svcName = parts[0].trim();
+                    String selector = parts[1].trim();
+                    // selector 里包含 app: deploymentName 就认为是匹配的
+                    // 格式: map[app:proj-xxx] 或 {"app":"proj-xxx"}
+                    if (selector.contains("\"app\":\"" + deploymentName + "\"")
+                            || selector.contains("app:" + deploymentName)
+                            || selector.contains("app: " + deploymentName)) {
+                        return svcName;
+                    }
+                }
+            }
+
+            // 方式2: 约定名 projectCode-svc
+            String conventionName = deploymentName + "-svc";
+            ProcessResult checkR = kubectl("get", "svc", conventionName, "-n", ns, "-o", "name");
+            if (checkR.success && !checkR.output.contains("not found") && !checkR.output.contains("NotFound")) {
+                return conventionName;
+            }
+
+            // 方式3: 集群里只有一个 Service，直接用它
+            ProcessResult allSvcR = kubectl("get", "svc", "-n", ns, "-o",
+                    "jsonpath={.items[*].metadata.name}");
+            if (allSvcR.success && !allSvcR.output.isBlank()) {
+                String[] names = allSvcR.output.trim().split("\\s+");
+                // 排除 kubernetes 这个默认 Service
+                java.util.List<String> candidates = new java.util.ArrayList<>();
+                for (String n : names) {
+                    if (!n.equals("kubernetes")) candidates.add(n);
+                }
+                if (candidates.size() == 1) {
+                    return candidates.get(0);
+                }
+            }
         }
-        // 兜底：从实例名推导，兼容旧格式 xxx-k8s 和新格式 xxx-k8s-3
+
+        // 兜底：从实例名推导，兼容旧格式
         String base = inst.getInstanceName();
         int k8sIdx = base.indexOf("-k8s");
         if (k8sIdx > 0) {
