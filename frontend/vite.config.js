@@ -10,8 +10,10 @@ export default defineConfig({
       '/ws': { target: 'http://localhost:8080', ws: true }
     }
   },
+  // 前后端分离：前端用 Vite dev server (3000) 独立运行，
+  // build 产物输出到 frontend/dist/，不混入 Spring Boot 静态资源目录
   build: {
-    outDir: '../devops-platform/src/main/resources/static',
+    outDir: 'dist',
     emptyOutDir: true
   }
 })
