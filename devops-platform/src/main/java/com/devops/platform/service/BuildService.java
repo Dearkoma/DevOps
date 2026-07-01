@@ -763,6 +763,21 @@ public class BuildService {
             // 避免 O 项目自带 yaml 硬编码指向 D 平台主库
             logBuf.append("[K8S] 使用已有: ").append(deployPath.toString()).append("\n");
             logBuf.append("[K8S] 注入本次构建的独立数据库配置...\n");
+            // ==================== 随机化 replicas 数量 (1-3) ====================
+            // 让 K8s 自动调度多副本（适合单节点开发也能用）
+            int randomReplicas = 1 + new java.util.Random().nextInt(3);
+            logBuf.append("[K8S] 随机分配 Pod 副本数: ").append(randomReplicas).append("\n");
+            try {
+                String yamlContent = Files.readString(deployPath);
+                // 替换已有 replicas（list 风格或顶层 spec 形式）
+                yamlContent = yamlContent.replaceAll(
+                        "(?m)^(\\s*)replicas:\\s*\\d+\\s*$",
+                        "$1replicas: " + randomReplicas);
+                Files.writeString(deployPath, yamlContent);
+                logBuf.append("[K8S] 已更新 deployment.yaml replicas=").append(randomReplicas).append("\n");
+            } catch (IOException ex) {
+                logBuf.append("[WARN] 更新 replicas 失败: ").append(ex.getMessage()).append("\n");
+            }
             Build build = buildRepository.findById(buildId).orElse(null);
             String dbName = build != null ? build.getDbName() : null;
             if (dbName != null && !dbName.isBlank() && !"H2".equalsIgnoreCase(project.getDbType())) {
@@ -914,6 +929,11 @@ public class BuildService {
         int containerPort = 8080;
         if ("Node.js".equalsIgnoreCase(project.getLanguage())) containerPort = 3000;
 
+        // ==================== 随机 Pod 副本数 (1-3) ====================
+        // K8s 会自动调度这些副本到不同 Node（如果有的话）
+        // 单节点开发环境也会自动调度到当前集群
+        int replicas = 1 + new java.util.Random().nextInt(3); // 1-3 之间随机
+
         // 检查 workspace 是否有 frontend/ 目录（前后端分离部署）
         boolean hasFrontend = false;
         try {
@@ -969,8 +989,10 @@ public class BuildService {
                 "metadata:\n" +
                 "  name: " + appName + "\n" +
                 "  namespace: " + k8sNamespace + "\n" +
+                "  labels:\n" +
+                "    replicas-auto: \"" + replicas + "\"\n" +
                 "spec:\n" +
-                "  replicas: 1\n" +
+                "  replicas: " + replicas + "\n" +
                 "  selector:\n" +
                 "    matchLabels:\n" +
                 "      app: " + appName + "\n" +
