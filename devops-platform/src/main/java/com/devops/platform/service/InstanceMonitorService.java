@@ -89,7 +89,16 @@ public class InstanceMonitorService {
     /** 通过 docker stats 采集 Docker 容器的 CPU/内存 */
     private void collectDockerMetrics(ServiceInstance inst) {
         String containerId = resolveDockerContainerId(inst);
-        if (containerId == null || containerId.isEmpty()) return;
+
+        // 只要找到容器就更新心跳（防止 docker stats 失败导致状态跳 UNKNOWN）
+        if (containerId != null && !containerId.isEmpty()) {
+            inst.setStatus("RUNNING");
+            inst.setHealthStatus("HEALTHY");
+            inst.setLastHeartbeat(LocalDateTime.now());
+            instanceRepository.save(inst);
+        } else {
+            return;
+        }
 
         ProcessBuilder pb = new ProcessBuilder(dockerCommand, "stats", "--no-stream",
                 "--format", "{{.CPUPerc}}|{{.MemUsage}}", containerId);
@@ -131,10 +140,6 @@ public class InstanceMonitorService {
                 inst.setMemoryUsage(memMB);
             }
 
-            // 采集成功 → 标为运行中
-            inst.setStatus("RUNNING");
-            inst.setHealthStatus("HEALTHY");
-            inst.setLastHeartbeat(LocalDateTime.now());
             instanceRepository.save(inst);
         } catch (Exception e) {
             log.debug("Docker 指标采集异常 [{}]: {}", inst.getInstanceName(), e.getMessage());

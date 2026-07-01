@@ -9,6 +9,7 @@ import java.util.List;
 @Repository
 public interface ServiceInstanceRepository extends JpaRepository<ServiceInstance, Long> {
     List<ServiceInstance> findByProjectId(Long projectId);
+    List<ServiceInstance> findByProjectIdAndDeployType(Long projectId, String deployType);
     List<ServiceInstance> findByStatus(String status);
     List<ServiceInstance> findByK8sNamespace(String namespace);
     List<ServiceInstance> findByHealthStatus(String healthStatus);

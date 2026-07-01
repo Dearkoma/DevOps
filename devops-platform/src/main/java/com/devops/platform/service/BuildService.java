@@ -378,56 +378,71 @@ public class BuildService {
 
         logBuf.append("\n========== 记录服务实例 ==========\n");
 
+        String imageNameStr = dockerRegistry.isBlank() ? project.getCode() : dockerRegistry + "/" + project.getCode();
+        String instDbName = build.getDbName();
+
         try {
-            ServiceInstance instance = new ServiceInstance();
-            instance.setProjectId(project.getId());
-            instance.setProjectName(project.getName());
-            instance.setStatus("RUNNING");
-            instance.setHealthStatus("HEALTHY");
-            instance.setLastHeartbeat(LocalDateTime.now());
-            String imageNameStr = dockerRegistry.isBlank() ? project.getCode() : dockerRegistry + "/" + project.getCode();
+            // Docker 实例（只要构建了 Docker 镜像就记录，无论是否跳过 K8s）
+            if (!skipDocker) {
+                ServiceInstance dockerInst = new ServiceInstance();
+                dockerInst.setProjectId(project.getId());
+                dockerInst.setProjectName(project.getName());
+                dockerInst.setDeployType("DOCKER");
+                dockerInst.setInstanceName(project.getCode() + "-docker");
+                dockerInst.setImageName(imageNameStr);
+                dockerInst.setImageTag("latest");
+                dockerInst.setHost("localhost");
+                dockerInst.setPort(8080);
+                dockerInst.setContainerId("");
+                dockerInst.setStatus("RUNNING");
+                dockerInst.setHealthStatus("HEALTHY");
+                dockerInst.setLastHeartbeat(LocalDateTime.now());
+                dockerInst.setDbName(instDbName);
+                dockerInst.setAdminUsername("admin");
+                dockerInst.setAdminPassword("admin123");
 
-            // 存储数据库名和管理员凭据
-            String instDbName = build.getDbName();
-            instance.setDbName(instDbName);
-            instance.setAdminUsername("admin");
-            instance.setAdminPassword("admin123");  // 与 DataInitializer 默认值一致
+                List<ServiceInstance> existingDocker = instanceRepository.findByProjectIdAndDeployType(project.getId(), "DOCKER");
+                if (!existingDocker.isEmpty()) {
+                    ServiceInstance old = existingDocker.get(0);
+                    dockerInst.setId(old.getId());
+                    dockerInst.setCreatedAt(old.getCreatedAt());
+                }
+                instanceRepository.save(dockerInst);
+                logBuf.append("[INSTANCE] Docker 实例: ").append(dockerInst.getInstanceName()).append("\n");
+                logBuf.append("[INSTANCE] 镜像: ").append(dockerInst.getImageName()).append(":").append(dockerInst.getImageTag()).append("\n");
+            }
 
+            // K8s 实例
             if (!skipK8s) {
-                // K8s 部署（包含 Docker 镜像）
-                instance.setDeployType("K8S");
-                instance.setInstanceName(project.getCode() + "-k8s");
-                instance.setK8sNamespace(k8sNamespace);
-                instance.setK8sPodName(project.getCode());
-                instance.setImageName(imageNameStr);
-                instance.setImageTag("latest");
-                logBuf.append("[INSTANCE] K8s 实例: ").append(instance.getInstanceName()).append("\n");
-                logBuf.append("[INSTANCE] 命名空间: ").append(k8sNamespace).append("\n");
-                logBuf.append("[INSTANCE] Pod: ").append(instance.getK8sPodName()).append("\n");
-                logBuf.append("[INSTANCE] 数据库: ").append(instDbName).append("\n");
-                logBuf.append("[INSTANCE] 管理员: admin / ").append(instance.getAdminPassword()).append("\n");
-            } else {
-                // 仅 Docker（跳过 K8s）
-                instance.setDeployType("DOCKER");
-                instance.setInstanceName(project.getCode() + "-docker");
-                instance.setImageName(imageNameStr);
-                instance.setImageTag("latest");
-                instance.setHost("localhost");
-                instance.setPort(8080);
-                instance.setContainerId("");
-                logBuf.append("[INSTANCE] Docker 实例: ").append(instance.getInstanceName()).append("\n");
-                logBuf.append("[INSTANCE] 镜像: ").append(instance.getImageName()).append(":").append(instance.getImageTag()).append("\n");
-            }
+                ServiceInstance k8sInst = new ServiceInstance();
+                k8sInst.setProjectId(project.getId());
+                k8sInst.setProjectName(project.getName());
+                k8sInst.setDeployType("K8S");
+                k8sInst.setInstanceName(project.getCode() + "-k8s");
+                k8sInst.setK8sNamespace(k8sNamespace);
+                k8sInst.setK8sPodName(project.getCode());
+                k8sInst.setImageName(imageNameStr);
+                k8sInst.setImageTag("latest");
+                k8sInst.setStatus("RUNNING");
+                k8sInst.setHealthStatus("HEALTHY");
+                k8sInst.setLastHeartbeat(LocalDateTime.now());
+                k8sInst.setDbName(instDbName);
+                k8sInst.setAdminUsername("admin");
+                k8sInst.setAdminPassword("admin123");
 
-            // 更新已有实例或新建
-            List<ServiceInstance> existing = instanceRepository.findByProjectId(project.getId());
-            if (!existing.isEmpty()) {
-                ServiceInstance old = existing.get(0);
-                instance.setId(old.getId());
-                instance.setCreatedAt(old.getCreatedAt());
+                List<ServiceInstance> existingK8s = instanceRepository.findByProjectIdAndDeployType(project.getId(), "K8S");
+                if (!existingK8s.isEmpty()) {
+                    ServiceInstance old = existingK8s.get(0);
+                    k8sInst.setId(old.getId());
+                    k8sInst.setCreatedAt(old.getCreatedAt());
+                }
+                instanceRepository.save(k8sInst);
+                logBuf.append("[INSTANCE] K8s 实例: ").append(k8sInst.getInstanceName()).append("\n");
+                logBuf.append("[INSTANCE] 命名空间: ").append(k8sNamespace).append("\n");
+                logBuf.append("[INSTANCE] Pod: ").append(k8sInst.getK8sPodName()).append("\n");
+                logBuf.append("[INSTANCE] 数据库: ").append(instDbName).append("\n");
+                logBuf.append("[INSTANCE] 管理员: admin / ").append(k8sInst.getAdminPassword()).append("\n");
             }
-            instanceRepository.save(instance);
-            logBuf.append("[INSTANCE] 服务实例已记录\n");
         } catch (Exception e) {
             logBuf.append("[WARN] 记录实例失败: ").append(e.getMessage()).append("\n");
         }
