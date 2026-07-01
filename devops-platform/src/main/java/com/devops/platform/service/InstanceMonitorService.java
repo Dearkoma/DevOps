@@ -686,23 +686,169 @@ public class InstanceMonitorService {
 
     /**
      * 停止指定实例的端口转发
+     * 分三层尝试：
+     * 1. 内存中的 Process 引用（最快）
+     * 2. 通过记录的端口查 PID 并杀掉
+     * 3. 通过 wmic / ps 搜索孤立的 kubectl port-forward 进程（兜底）
      * @return Map: success, message
      */
     public Map<String, Object> stopForward(Long id) {
         Process p = portForwardProcesses.remove(id);
         Integer port = portForwardPorts.remove(id);
-        if (p == null || !p.isAlive()) {
-            return Map.of("success", true, "message", "没有活跃的端口转发（可能已自动断开）");
+        boolean killed = false;
+
+        // 第 1 层：通过内存中的 Process 引用杀进程
+        if (p != null && p.isAlive()) {
+            try {
+                p.destroyForcibly();
+                killed = true;
+                log.info("已停止端口转发（内存引用）: instanceId={}, port={}", id, port);
+            } catch (Exception e) {
+                log.warn("通过内存引用停止端口转发失败: instanceId={}", id, e);
+            }
         }
-        try {
-            p.destroyForcibly();
-            log.info("已停止端口转发: instanceId={}, port={}", id, port);
+
+        // 第 2 层：通过记录的端口杀掉监听该端口的 kubectl 进程
+        if (!killed && port != null) {
+            killed = killProcessOnPort(port);
+            if (killed) {
+                log.info("已停止端口转发（端口查找）: instanceId={}, port={}", id, port);
+            }
+        }
+
+        // 第 3 层：通过 service 名搜索孤立的 kubectl port-forward 进程
+        if (!killed) {
+            ServiceInstance inst = instanceRepository.findById(id).orElse(null);
+            if (inst != null && "K8S".equals(inst.getDeployType())) {
+                String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
+                String svcName = resolveK8sServiceName(inst);
+                killed = killOrphanPortForward(svcName, ns);
+                if (killed) {
+                    log.info("已停止孤立的端口转发: svc/{}.{} -> instanceId={}", svcName, ns, id);
+                }
+            }
+        }
+
+        if (killed) {
             return Map.of("success", true, "message",
                     "端口转发已停止" + (port != null ? "（端口 " + port + " 已释放）" : ""));
-        } catch (Exception e) {
-            log.warn("停止端口转发失败: instanceId={}", id, e);
-            return Map.of("success", false, "error", "停止端口转发失败: " + e.getMessage());
         }
+        return Map.of("success", true, "message", "没有活跃的端口转发（可能已自动断开）");
+    }
+
+    /** 通过端口号查找并杀掉监听该端口的进程 */
+    private boolean killProcessOnPort(int port) {
+        try {
+            if (isWindows()) {
+                // netstat -ano | findstr ":PORT "  → 获取 PID
+                ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c",
+                        "netstat -ano | findstr \":" + port + " \" | findstr LISTENING");
+                pb.redirectErrorStream(true);
+                Process proc = pb.start();
+                String output = new String(proc.getInputStream().readAllBytes());
+                proc.waitFor(5, TimeUnit.SECONDS);
+
+                for (String line : output.split("\\R")) {
+                    line = line.trim();
+                    if (line.isEmpty()) continue;
+                    String[] parts = line.split("\\s+");
+                    if (parts.length >= 5) {
+                        String pid = parts[parts.length - 1];
+                        // 验证该 PID 确实是 kubectl 进程
+                        if (isKubectlProcess(pid)) {
+                            new ProcessBuilder("taskkill", "/F", "/PID", pid)
+                                    .redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS);
+                            return true;
+                        }
+                    }
+                }
+            } else {
+                // Linux/Mac: lsof -ti :PORT → kill
+                ProcessBuilder pb = new ProcessBuilder("sh", "-c",
+                        "lsof -ti :" + port + " 2>/dev/null");
+                pb.redirectErrorStream(true);
+                Process proc = pb.start();
+                String output = new String(proc.getInputStream().readAllBytes()).trim();
+                proc.waitFor(5, TimeUnit.SECONDS);
+                if (!output.isEmpty()) {
+                    new ProcessBuilder("kill", "-9", output)
+                            .redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS);
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("通过端口 {} 杀进程失败: {}", port, e.getMessage());
+        }
+        return false;
+    }
+
+    /** 搜索孤立的 kubectl port-forward 进程并按 service 名杀掉 */
+    private boolean killOrphanPortForward(String svcName, String namespace) {
+        try {
+            if (isWindows()) {
+                // wmic process where "name='kubectl.exe'" get processid,commandline
+                ProcessBuilder pb = new ProcessBuilder("wmic", "process",
+                        "where", "name='kubectl.exe'", "get", "processid,commandline", "/format:csv");
+                pb.redirectErrorStream(true);
+                Process proc = pb.start();
+                String output = new String(proc.getInputStream().readAllBytes());
+                proc.waitFor(10, TimeUnit.SECONDS);
+
+                for (String line : output.split("\\R")) {
+                    if (!line.contains("port-forward") || !line.contains("svc/" + svcName)) continue;
+                    // 格式: Node,ProcessId,CommandLine
+                    String[] parts = line.split(",");
+                    if (parts.length >= 3) {
+                        String pid = parts[1].trim();
+                        try {
+                            Long.parseLong(pid); // 验证是数字
+                            new ProcessBuilder("taskkill", "/F", "/PID", pid)
+                                    .redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS);
+                            return true;
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+            } else {
+                // Linux/Mac: ps aux | grep "port-forward.*svc/SVCNAME" | grep -v grep
+                ProcessBuilder pb = new ProcessBuilder("sh", "-c",
+                        "ps aux | grep 'port-forward.*svc/" + svcName + "' | grep -v grep | awk '{print $2}'");
+                pb.redirectErrorStream(true);
+                Process proc = pb.start();
+                String output = new String(proc.getInputStream().readAllBytes()).trim();
+                proc.waitFor(5, TimeUnit.SECONDS);
+                if (!output.isEmpty()) {
+                    for (String pid : output.split("\\R")) {
+                        pid = pid.trim();
+                        if (!pid.isEmpty()) {
+                            new ProcessBuilder("kill", "-9", pid)
+                                    .redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS);
+                        }
+                    }
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("搜索孤立的端口转发进程失败: {}", e.getMessage());
+        }
+        return false;
+    }
+
+    /** 验证指定 PID 是否是 kubectl 进程 */
+    private boolean isKubectlProcess(String pid) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("tasklist", "/FI", "PID eq " + pid, "/FO", "CSV");
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            String output = new String(proc.getInputStream().readAllBytes());
+            proc.waitFor(5, TimeUnit.SECONDS);
+            return output.toLowerCase().contains("kubectl");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 
     // ==================== 容器日志 ====================
