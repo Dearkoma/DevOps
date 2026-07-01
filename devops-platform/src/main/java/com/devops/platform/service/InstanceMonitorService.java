@@ -90,15 +90,22 @@ public class InstanceMonitorService {
     private void collectDockerMetrics(ServiceInstance inst) {
         String containerId = resolveDockerContainerId(inst);
 
-        // 只要找到容器就更新心跳（防止 docker stats 失败导致状态跳 UNKNOWN）
-        if (containerId != null && !containerId.isEmpty()) {
-            inst.setStatus("RUNNING");
-            inst.setHealthStatus("HEALTHY");
-            inst.setLastHeartbeat(LocalDateTime.now());
-            instanceRepository.save(inst);
-        } else {
+        // 找不到独立 Docker 容器 → 标记为 STOPPED（排除 K8s 容器干扰）
+        if (containerId == null || containerId.isEmpty()) {
+            if (!"STOPPED".equals(inst.getStatus())) {
+                inst.setStatus("STOPPED");
+                inst.setHealthStatus("UNKNOWN");
+                inst.setLastHeartbeat(LocalDateTime.now());
+                instanceRepository.save(inst);
+            }
             return;
         }
+
+        // 只要找到容器就更新心跳
+        inst.setStatus("RUNNING");
+        inst.setHealthStatus("HEALTHY");
+        inst.setLastHeartbeat(LocalDateTime.now());
+        instanceRepository.save(inst);
 
         ProcessBuilder pb = new ProcessBuilder(dockerCommand, "stats", "--no-stream",
                 "--format", "{{.CPUPerc}}|{{.MemUsage}}", containerId);
@@ -1317,20 +1324,28 @@ public class InstanceMonitorService {
 
     /**
      * 根据实例信息解析实际运行中的 Docker 容器 ID
-     * 优先使用记录的 containerId，否则通过镜像名查找
+     * 优先使用记录的 containerId，否则通过镜像名查找（排除 K8s 容器）
      */
     private String resolveDockerContainerId(ServiceInstance inst) {
         // 优先使用记录的 containerId
         if (inst.getContainerId() != null && !inst.getContainerId().isBlank()) {
             return inst.getContainerId().trim();
         }
-        // 通过镜像名查找
+        // 通过镜像名查找，排除 K8s 管理的容器（名称以 k8s_ 开头）
         if (inst.getImageName() != null && !inst.getImageName().isBlank()) {
             String image = inst.getImageName() + ":" + (inst.getImageTag() != null ? inst.getImageTag() : "latest");
             try {
-                ProcessResult r = runCommand(dockerCommand + " ps -q --filter ancestor=" + image);
+                ProcessResult r = runCommand(dockerCommand + " ps --format \"{{.ID}} {{.Names}}\" --filter ancestor=" + image);
                 if (r.success && r.output != null && !r.output.isBlank()) {
-                    return r.output.trim().split("\\R")[0]; // 取第一个匹配的容器
+                    for (String line : r.output.split("\\R")) {
+                        String trimmed = line.trim();
+                        if (trimmed.isEmpty()) continue;
+                        String[] parts = trimmed.split(" ", 2);
+                        if (parts.length < 2) continue;
+                        // 跳过 K8s 管理的容器
+                        if (parts[1].startsWith("k8s_")) continue;
+                        return parts[0]; // 返回第一个独立 Docker 容器
+                    }
                 }
             } catch (Exception e) {
                 log.debug("通过镜像查找容器失败: {}", e.getMessage());
