@@ -1,14 +1,12 @@
 package com.devops.platform.service;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import javax.sql.DataSource;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,14 +23,11 @@ import java.util.Map;
 @Service
 public class DatabaseProvisioningService {
 
-    @Value("${spring.datasource.url}")
-    private String datasourceUrl;
+    private final DataSource dataSource;
 
-    @Value("${spring.datasource.username}")
-    private String datasourceUsername;
-
-    @Value("${spring.datasource.password}")
-    private String datasourcePassword;
+    public DatabaseProvisioningService(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
 
     /**
      * 数据库创建结果。
@@ -71,8 +66,7 @@ public class DatabaseProvisioningService {
      */
     public boolean databaseExists(String dbName) {
         String safeName = sanitizeDbName(dbName);
-        String baseUrl = extractBaseJdbcUrl(datasourceUrl);
-        try (Connection conn = DriverManager.getConnection(baseUrl, datasourceUsername, datasourcePassword);
+        try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
             ResultSet rs = stmt.executeQuery(
                     "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '" + safeName.replace("'", "''") + "'");
@@ -104,7 +98,6 @@ public class DatabaseProvisioningService {
         }
 
         String safeName = sanitizeDbName(dbName);
-        String baseUrl = extractBaseJdbcUrl(datasourceUrl);
 
         // 1) 检查 MySQL 中是否已存在
         boolean exists = databaseExists(safeName);
@@ -121,8 +114,8 @@ public class DatabaseProvisioningService {
             }
         }
 
-        // 3) 执行创建
-        try (Connection conn = DriverManager.getConnection(baseUrl, datasourceUsername, datasourcePassword);
+        // 3) 执行创建（直接复用 Spring DataSource，无需解析 JDBC URL）
+        try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
 
             if (!exists) {
@@ -149,32 +142,6 @@ public class DatabaseProvisioningService {
     public boolean createDatabase(String dbName) {
         CreateResult r = createDatabase(dbName, null, null);
         return r.success;
-    }
-
-    /**
-     * 从完整 JDBC URL 提取不包含数据库名的基础 URL。
-     * 例如:
-     * jdbc:mysql://localhost:3306/devops_platform?params...
-     * → jdbc:mysql://localhost:3306?params...（去掉 /devops_platform）
-     */
-    static String extractBaseJdbcUrl(String fullUrl) {
-        // 格式: jdbc:mysql://host:port/dbname?params...
-        // 需要去掉 /dbname 但保留查询参数
-        int lastSlash = fullUrl.lastIndexOf('/');
-        if (lastSlash <= 0) return fullUrl;
-
-        String prefix = fullUrl.substring(0, lastSlash);
-        String suffix = fullUrl.substring(lastSlash + 1);
-
-        // suffix 可能包含 ?params
-        int qIdx = suffix.indexOf('?');
-        if (qIdx >= 0) {
-            // suffix = "dbname?params"，只保留 ?params
-            return prefix + suffix.substring(qIdx);
-        } else {
-            // suffix 就是数据库名，直接去掉
-            return prefix;
-        }
     }
 
     /**
