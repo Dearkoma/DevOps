@@ -116,11 +116,11 @@ public class BuildService {
         result.put("conflict", false);
         result.put("dbExists", false);
 
-        // H2 模式：无需检查 MySQL 冲突
+        // db_type 为 NULL 时默认 MySQL，仅显式 H2 才跳过
         boolean useH2 = true;
         if (currentProjectId != null) {
             Project project = projectRepository.findById(currentProjectId).orElse(null);
-            useH2 = project == null || project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
+            useH2 = project == null || "H2".equalsIgnoreCase(project.getDbType());
         }
         if (useH2) {
             result.put("skipCheck", true);
@@ -170,9 +170,9 @@ public class BuildService {
                 ? DatabaseProvisioningService.sanitizeDbName(dbName)
                 : DatabaseProvisioningService.defaultDbName(project.getCode(), buildNumber);
 
-        // H2 模式：O 项目自带内嵌数据库，不需要在 D 项目 MySQL 上建库
-        // MySQL 模式：在 D 项目能连到的 MySQL 上创建独立库（若用户指定了独立连接则 skip）
-        boolean useH2 = project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
+        // db_type 为 NULL 时默认 MySQL（大多数 Spring Boot 项目用 MySQL）
+        // 仅显式声明 H2 时才跳过数据库供应
+        boolean useH2 = "H2".equalsIgnoreCase(project.getDbType());
         if (!useH2) {
             DatabaseProvisioningService.CreateResult dbResult =
                     dbProvisioningService.createDatabase(effectiveDbName, projectId, buildRepository);
@@ -784,8 +784,8 @@ public class BuildService {
         String targetDb = (dbName != null && !dbName.isBlank()) ? dbName
                 : DatabaseProvisioningService.defaultDbName(project.getCode(), "0");
 
-        // 数据库连接：H2 模式零依赖；MySQL 模式注入项目自己的连接信息
-        boolean useH2 = project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
+        // 数据库连接：H2 模式零依赖；MySQL 模式注入连接信息（db_type 为 NULL 时默认 MySQL）
+        boolean useH2 = "H2".equalsIgnoreCase(project.getDbType());
         String envSection = "";
         if (!useH2) {
             String dbHost = project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";

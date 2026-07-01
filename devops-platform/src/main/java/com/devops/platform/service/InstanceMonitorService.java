@@ -1272,19 +1272,19 @@ public class InstanceMonitorService {
         runArgs.add("-p");
         runArgs.add(freePort + ":" + containerPort);
 
-        // 数据库连接：仅当项目配置为 MySQL 时才注入环境变量
-        // H2 项目自带内嵌数据库，无需任何环境变量
+        // db_type 为 NULL 时默认 MySQL（大多数 Spring Boot 项目用 MySQL）
+        // 仅显式声明 H2 时才跳过数据库环境变量注入
         Project project = inst.getProjectId() != null
                 ? projectRepository.findById(inst.getProjectId()).orElse(null) : null;
-        boolean useH2 = project == null || project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
+        boolean useH2 = project == null || "H2".equalsIgnoreCase(project.getDbType());
         if (!useH2) {
             String targetDb = (inst.getDbName() != null && !inst.getDbName().isBlank())
                     ? inst.getDbName() : DatabaseProvisioningService.defaultDbName(
                             project.getCode() != null ? project.getCode() : "app", "0");
-            String dbHost = project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";
-            int dbPort = project.getDbPort() != null ? project.getDbPort() : 3306;
-            String dbUser = project.getDbUsername() != null ? project.getDbUsername() : "root";
-            String dbPass = project.getDbPassword() != null ? project.getDbPassword() : "";
+            String dbHost = project != null && project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";
+            int dbPort = project != null && project.getDbPort() != null ? project.getDbPort() : 3306;
+            String dbUser = project != null && project.getDbUsername() != null ? project.getDbUsername() : "root";
+            String dbPass = project != null && project.getDbPassword() != null ? project.getDbPassword() : "";
             runArgs.add("-e");
             runArgs.add("SPRING_DATASOURCE_URL=jdbc:mysql://" + dbHost + ":" + dbPort + "/" + targetDb + "?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true");
             runArgs.add("-e");
