@@ -52,6 +52,7 @@ export default function PipelineList() {
     if (!buildPendingPipeline) return null
     return projects.find(p => p.id === buildPendingPipeline.projectId)
   }
+  const isH2 = !getProjectForBuild()?.dbType || getProjectForBuild()?.dbType === 'H2'
   const effectiveDbPreview = buildDbName
     ? sanitizeDbName(buildDbName)
     : (() => {
@@ -59,10 +60,10 @@ export default function PipelineList() {
         return proj?.code ? `devops_${sanitizeDbName(proj.code)}` : 'devops_app'
       })()
 
-  // 数据库名冲突检测（实时防抖）
+  // 数据库名冲突检测（实时防抖 — H2 模式跳过）
   const [dbConflict, setDbConflict] = useState(null)
   useEffect(() => {
-    if (!showBuildModal || !effectiveDbPreview || !buildPendingPipeline) {
+    if (!showBuildModal || isH2 || !effectiveDbPreview || !buildPendingPipeline) {
       setDbConflict(null)
       return
     }
@@ -378,7 +379,20 @@ export default function PipelineList() {
               </label>
             </div>
 
-            {/* 数据库隔离配置 */}
+            {/* 数据库隔离配置 — H2 模式无需配置 */}
+            {isH2 ? (
+              <div style={{
+                background: '#f0fdf4', borderRadius: 8, padding: '10px 12px',
+                marginBottom: 16, border: '1px solid #bbf7d0'
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#065f46', marginBottom: 4 }}>
+                  🗄 数据库：H2 内嵌模式
+                </div>
+                <span style={{ fontSize: 11, color: '#047857' }}>
+                  O 项目使用 Spring Boot 自带 H2 文件数据库，零外部依赖，Pod 内自包含运行。
+                </span>
+              </div>
+            ) : (
             <div style={{
               background: '#f0f9ff', borderRadius: 8, padding: '10px 12px',
               marginBottom: 16, border: '1px solid #bae6fd'
@@ -412,6 +426,7 @@ export default function PipelineList() {
                 )}
               </label>
             </div>
+            )}
             <div style={{
               fontSize: 12, color: '#6b7280', marginBottom: 16, padding: '8px 12px',
               background: '#eff6ff', borderRadius: 8, border: '1px solid #bfdbfe'

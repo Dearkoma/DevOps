@@ -1,6 +1,8 @@
 package com.devops.platform.service;
 
+import com.devops.platform.entity.Project;
 import com.devops.platform.entity.ServiceInstance;
+import com.devops.platform.repository.ProjectRepository;
 import com.devops.platform.repository.ServiceInstanceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +29,7 @@ import java.util.stream.Collectors;
 public class InstanceMonitorService {
 
     private final ServiceInstanceRepository instanceRepository;
+    private final ProjectRepository projectRepository;
 
     @Value("${devops.pipeline.docker.command:docker}")
     private String dockerCommand;
@@ -1079,16 +1082,24 @@ public class InstanceMonitorService {
         runArgs.add("-p");
         runArgs.add(freePort + ":" + containerPort);
 
-        // Java 项目注入 MySQL 环境变量（使用实例独立的数据库名）
-        if (inst.getDeployType() != null && !"Node.js".equalsIgnoreCase(inst.getDeployType())) {
+        // 数据库连接：仅当项目配置为 MySQL 时才注入环境变量
+        // H2 项目自带内嵌数据库，无需任何环境变量
+        Project project = inst.getProjectId() != null
+                ? projectRepository.findById(inst.getProjectId()).orElse(null) : null;
+        boolean useH2 = project == null || project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
+        if (!useH2) {
             String targetDb = (inst.getDbName() != null && !inst.getDbName().isBlank())
                     ? inst.getDbName() : "devops_platform";
+            String dbHost = project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";
+            int dbPort = project.getDbPort() != null ? project.getDbPort() : 3306;
+            String dbUser = project.getDbUsername() != null ? project.getDbUsername() : "root";
+            String dbPass = project.getDbPassword() != null ? project.getDbPassword() : "";
             runArgs.add("-e");
-            runArgs.add("SPRING_DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/" + targetDb + "?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true");
+            runArgs.add("SPRING_DATASOURCE_URL=jdbc:mysql://" + dbHost + ":" + dbPort + "/" + targetDb + "?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true");
             runArgs.add("-e");
-            runArgs.add("SPRING_DATASOURCE_USERNAME=root");
+            runArgs.add("SPRING_DATASOURCE_USERNAME=" + dbUser);
             runArgs.add("-e");
-            runArgs.add("SPRING_DATASOURCE_PASSWORD=Dearkoma.962464");
+            runArgs.add("SPRING_DATASOURCE_PASSWORD=" + dbPass);
         }
 
         runArgs.add(imageName);

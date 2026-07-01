@@ -10,6 +10,7 @@ const DEFAULT_FORM = {
   name: '', code: '', gitUrl: '', gitBranch: 'main',
   language: 'Java', framework: 'Spring Boot', buildCommand: 'mvn clean package -DskipTests',
   description: '',
+  dbType: 'H2', dbHost: '', dbPort: 3306, dbUsername: '', dbPassword: '',
 }
 
 export default function ProjectList() {
@@ -53,14 +54,15 @@ export default function ProjectList() {
     return clean || 'app'
   }
   // 实时预览有效数据库名
+  const isH2 = !detailProject?.dbType || detailProject.dbType === 'H2'
   const effectiveDbPreview = buildDbName
     ? sanitizeDbName(buildDbName)
     : (detailProject?.code ? `devops_${sanitizeDbName(detailProject.code)}` : 'devops_app')
 
-  // 数据库名冲突检测（实时防抖）
-  const [dbConflict, setDbConflict] = useState(null) // null=未检测, {conflict, conflictProject, reusedByCurrent, dbExists}
+  // 数据库名冲突检测（实时防抖 — H2 模式跳过）
+  const [dbConflict, setDbConflict] = useState(null)
   useEffect(() => {
-    if (!showBuildModal || !effectiveDbPreview || !buildPendingPipeline) {
+    if (!showBuildModal || isH2 || !effectiveDbPreview || !buildPendingPipeline) {
       setDbConflict(null)
       return
     }
@@ -93,6 +95,8 @@ export default function ProjectList() {
       name: p.name || '', code: p.code || '', gitUrl: p.gitUrl || '', gitBranch: p.gitBranch || 'main',
       language: p.language || 'Java', framework: p.framework || 'Spring Boot',
       buildCommand: p.buildCommand || '', description: p.description || '',
+      dbType: p.dbType || 'H2', dbHost: p.dbHost || '', dbPort: p.dbPort || 3306,
+      dbUsername: p.dbUsername || '', dbPassword: p.dbPassword || '',
     })
     setShowModal(true)
   }
@@ -377,6 +381,47 @@ export default function ProjectList() {
               <label>构建命令</label>
               <input value={form.buildCommand} onChange={e => setForm({...form, buildCommand: e.target.value})} />
             </div>
+
+            {/* 数据库类型选择 */}
+            <div className="detail-grid">
+              <div className="form-group">
+                <label>数据库</label>
+                <select value={form.dbType} onChange={e => {
+                  setForm({...form, dbType: e.target.value, dbHost: '', dbPort: 3306, dbUsername: '', dbPassword: ''})
+                }}>
+                  <option value="H2">H2 内嵌 (推荐 — 零依赖)</option>
+                  <option value="MYSQL">MySQL</option>
+                </select>
+              </div>
+            </div>
+
+            {/* MySQL 连接信息 */}
+            {form.dbType === 'MYSQL' && (
+              <>
+                <div className="detail-grid">
+                  <div className="form-group">
+                    <label>MySQL 主机</label>
+                    <input value={form.dbHost} onChange={e => setForm({...form, dbHost: e.target.value})}
+                      placeholder="host.docker.internal 或 IP" />
+                  </div>
+                  <div className="form-group">
+                    <label>端口</label>
+                    <input type="number" value={form.dbPort} onChange={e => setForm({...form, dbPort: parseInt(e.target.value) || 3306})} />
+                  </div>
+                </div>
+                <div className="detail-grid">
+                  <div className="form-group">
+                    <label>用户名</label>
+                    <input value={form.dbUsername} onChange={e => setForm({...form, dbUsername: e.target.value})} placeholder="root" />
+                  </div>
+                  <div className="form-group">
+                    <label>密码</label>
+                    <input type="password" value={form.dbPassword} onChange={e => setForm({...form, dbPassword: e.target.value})} />
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="form-group">
               <label>描述</label>
               <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={2} />
@@ -642,7 +687,17 @@ export default function ProjectList() {
               </label>
             </div>
 
-            {/* 数据库隔离配置 */}
+            {/* 数据库隔离配置 — H2 模式无需配置 */}
+            {isH2 ? (
+              <div style={{ marginTop: 12, background: '#f0fdf4', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#065f46', marginBottom: 4 }}>
+                  🗄 数据库：H2 内嵌模式
+                </div>
+                <span style={{ fontSize: 11, color: '#047857' }}>
+                  O 项目使用 Spring Boot 自带 H2 文件数据库，零外部依赖，Pod 内自包含运行。
+                </span>
+              </div>
+            ) : (
             <div style={{ marginTop: 12, background: '#f0f9ff', borderRadius: 8, padding: '10px 12px' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1', marginBottom: 8 }}>
                 🗄 数据库隔离配置（部署时自动创建独立库）
@@ -673,6 +728,7 @@ export default function ProjectList() {
                 )}
               </label>
             </div>
+            )}
 
             <p style={{
               margin: '12px 0 0', fontSize: 11, color: '#9ca3af', textAlign: 'center'

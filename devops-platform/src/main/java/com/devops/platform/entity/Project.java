@@ -46,6 +46,21 @@ public class Project {
     @Column(length = 50)
     private String framework;  // Spring Boot / Express / Django / Gin
 
+    @Column(length = 20)
+    private String dbType = "H2";  // H2 / MYSQL — O 项目数据库类型
+
+    @Column(length = 200)
+    private String dbHost;  // MySQL 主机地址
+
+    @Column
+    private Integer dbPort = 3306;  // MySQL 端口
+
+    @Column(length = 100)
+    private String dbUsername;  // MySQL 用户名
+
+    @Column(length = 200)
+    private String dbPassword;  // MySQL 密码
+
     @Column(nullable = false)
     private Boolean enabled = true;
 

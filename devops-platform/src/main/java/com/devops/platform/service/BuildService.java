@@ -114,6 +114,18 @@ public class BuildService {
         String safeName = DatabaseProvisioningService.sanitizeDbName(dbName);
         result.put("dbName", safeName);
         result.put("conflict", false);
+        result.put("dbExists", false);
+
+        // H2 模式：无需检查 MySQL 冲突
+        boolean useH2 = true;
+        if (currentProjectId != null) {
+            Project project = projectRepository.findById(currentProjectId).orElse(null);
+            useH2 = project == null || project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
+        }
+        if (useH2) {
+            result.put("skipCheck", true);
+            return result;
+        }
 
         boolean exists = dbProvisioningService.databaseExists(safeName);
         result.put("dbExists", exists);
@@ -154,16 +166,20 @@ public class BuildService {
                 ? DatabaseProvisioningService.sanitizeDbName(dbName)
                 : DatabaseProvisioningService.defaultDbName(project.getCode());
 
-        // 在构建前先创建独立数据库（带冲突检测）
-        DatabaseProvisioningService.CreateResult dbResult =
-                dbProvisioningService.createDatabase(effectiveDbName, projectId, buildRepository);
-        if (!dbResult.success) {
-            if (dbResult.conflictProjectId != null) {
-                throw new RuntimeException(String.format(
-                        "数据库 '%s' 已被项目 %s 占用，请更换数据库名后重试",
-                        dbResult.dbName, dbResult.conflictProjectName));
+        // H2 模式：O 项目自带内嵌数据库，不需要在 D 项目 MySQL 上建库
+        // MySQL 模式：在 D 项目能连到的 MySQL 上创建独立库（若用户指定了独立连接则 skip）
+        boolean useH2 = project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
+        if (!useH2) {
+            DatabaseProvisioningService.CreateResult dbResult =
+                    dbProvisioningService.createDatabase(effectiveDbName, projectId, buildRepository);
+            if (!dbResult.success) {
+                if (dbResult.conflictProjectId != null) {
+                    throw new RuntimeException(String.format(
+                            "数据库 '%s' 已被项目 %s 占用，请更换数据库名后重试",
+                            dbResult.dbName, dbResult.conflictProjectName));
+                }
+                throw new RuntimeException("数据库 '" + effectiveDbName + "' 创建失败");
             }
-            throw new RuntimeException("数据库 '" + effectiveDbName + "' 创建失败");
         }
 
         Build build = new Build();
@@ -777,17 +793,22 @@ public class BuildService {
         String targetDb = (dbName != null && !dbName.isBlank()) ? dbName
                 : DatabaseProvisioningService.defaultDbName(project.getCode());
 
-        // Java/Spring Boot 项目需要连接宿主机 MySQL
+        // 数据库连接：H2 模式零依赖；MySQL 模式注入项目自己的连接信息
+        boolean useH2 = project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
         String envSection = "";
-        if (project.getLanguage() == null || !"Node.js".equalsIgnoreCase(project.getLanguage())) {
+        if (!useH2) {
+            String dbHost = project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";
+            int dbPort = project.getDbPort() != null ? project.getDbPort() : 3306;
+            String dbUser = project.getDbUsername() != null ? project.getDbUsername() : "root";
+            String dbPass = project.getDbPassword() != null ? project.getDbPassword() : "";
             envSection =
                 "          env:\n" +
                 "            - name: SPRING_DATASOURCE_URL\n" +
-                "              value: \"jdbc:mysql://host.docker.internal:3306/" + targetDb + "?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true\"\n" +
+                "              value: \"jdbc:mysql://" + dbHost + ":" + dbPort + "/" + targetDb + "?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true\"\n" +
                 "            - name: SPRING_DATASOURCE_USERNAME\n" +
-                "              value: \"root\"\n" +
+                "              value: \"" + dbUser + "\"\n" +
                 "            - name: SPRING_DATASOURCE_PASSWORD\n" +
-                "              value: \"Dearkoma.962464\"\n";
+                "              value: \"" + dbPass + "\"\n";
         }
 
         // 前端 nginx 容器（如果有 frontend 目录）
