@@ -1181,15 +1181,19 @@ public class InstanceMonitorService {
         // ==================== 前置检查：确保有可用 Pod（Pod 可能 Succeeded/Completed 已退出） ====================
         // 列出 Service selector 匹配的所有 Pod，逐个检查 phase
         // 优先选择 Running 状态的 Pod；若无任何 Running，则启动 port-forward 也无法工作
+        // 注意: 不用 jsonpath (jsonpath 解析器不允许 | 字符),改用 custom-columns + sed 解析
         ProcessResult podsR = kubectl("get", "pods", "-n", ns,
-                "-l", "app=" + svcName.replace("-svc", ""), "-o", "jsonpath={range .items[*]}{.metadata.name}{\"|\"}{.status.phase}{\"\\n\"}{end}");
+                "-l", "app=" + svcName.replace("-svc", ""),
+                "--no-headers",
+                "-o", "custom-columns=NAME:.metadata.name,PHASE:.status.phase");
         String runningPod = null;
         String firstPod = null;
         StringBuilder phases = new StringBuilder();
         if (podsR.success && podsR.output != null && !podsR.output.trim().isEmpty()) {
             for (String line : podsR.output.split("\\R")) {
                 if (line.trim().isEmpty()) continue;
-                String[] parts = line.split("\\|", 2);
+                // custom-columns 输出: "<name>\t<phase>" 或 "<name> <phase>" (用空格分隔)
+                String[] parts = line.trim().split("\\s+", 2);
                 if (parts.length < 2) continue;
                 String podName = parts[0].trim();
                 String phase = parts[1].trim();
