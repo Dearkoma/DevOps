@@ -107,13 +107,13 @@ public class BuildService {
 
     /** 触发构建（简便重载） */
     public Build triggerBuild(Long projectId, Long pipelineId, String triggeredBy) {
-        return triggerBuild(projectId, pipelineId, triggeredBy, null, null, false, false, null, null);
+        return triggerBuild(projectId, pipelineId, triggeredBy, null, null, false, false, null);
     }
 
-    /** 参数化触发构建（含独立跳过标志、数据库名称、管理员密码） */
+    /** 参数化触发构建（含独立跳过标志、数据库名称） */
     public Build triggerBuild(Long projectId, Long pipelineId, String triggeredBy,
                               String buildParams, String branch, boolean skipDocker, boolean skipK8s,
-                              String dbName, String adminPassword) {
+                              String dbName) {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new RuntimeException("项目不存在: " + projectId));
         Pipeline pipeline = pipelineRepository.findById(pipelineId)
@@ -125,10 +125,6 @@ public class BuildService {
         // 数据库名：用户指定 > 默认规则 devops_<projectCode>
         String effectiveDbName = (dbName != null && !dbName.isBlank())
                 ? dbName : DatabaseProvisioningService.defaultDbName(project.getCode());
-
-        // 管理员密码：用户指定 > 默认 admin123（与 DataInitializer 一致）
-        String effectiveAdminPassword = (adminPassword != null && !adminPassword.isBlank())
-                ? adminPassword : "admin123";
 
         // 在构建前先创建独立数据库（失败不阻塞构建，部署时还有一次兜底）
         dbProvisioningService.createDatabase(effectiveDbName);
@@ -145,16 +141,6 @@ public class BuildService {
         build.setSkipDocker(skipDocker);
         build.setSkipK8s(skipK8s);
         build.setDbName(effectiveDbName);
-        // 将 adminPassword 塞进 buildParams JSON（如果原来有参数则合并）
-        try {
-            Map<String, Object> params = (buildParams != null && !buildParams.isBlank())
-                    ? objectMapper.readValue(buildParams, new TypeReference<>() {})
-                    : new LinkedHashMap<>();
-            params.put("adminPassword", effectiveAdminPassword);
-            build.setBuildParams(objectMapper.writeValueAsString(params));
-        } catch (Exception e) {
-            build.setBuildParams("{\"adminPassword\":\"" + effectiveAdminPassword + "\"}");
-        }
         buildRepository.save(build);
 
         executeBuildAsync(build.getId(), project, pipeline);
@@ -191,7 +177,7 @@ public class BuildService {
         }
 
         String triggerType = "PUSH";
-        Build build = triggerBuild(projectId, matched.getId(), committer, null, branch, false, false, null, null);
+        Build build = triggerBuild(projectId, matched.getId(), committer, null, branch, false, false, null);
         build.setTriggerType(triggerType);
         build.setGitCommit(commit);
         buildRepository.save(build);
@@ -405,7 +391,7 @@ public class BuildService {
             String instDbName = build.getDbName();
             instance.setDbName(instDbName);
             instance.setAdminUsername("admin");
-            instance.setAdminPassword(extractAdminPassword(build));
+            instance.setAdminPassword("admin123");  // 与 DataInitializer 默认值一致
 
             if (!skipK8s) {
                 // K8s 部署（包含 Docker 镜像）
@@ -445,21 +431,6 @@ public class BuildService {
         } catch (Exception e) {
             logBuf.append("[WARN] 记录实例失败: ").append(e.getMessage()).append("\n");
         }
-    }
-
-    /** 从 Build.buildParams JSON 中提取 adminPassword，默认返回 "admin123" */
-    private String extractAdminPassword(Build build) {
-        try {
-            if (build.getBuildParams() != null) {
-                Map<String, Object> params = objectMapper.readValue(
-                        build.getBuildParams(), new TypeReference<>() {});
-                Object pwd = params.get("adminPassword");
-                if (pwd != null && !pwd.toString().isBlank()) {
-                    return pwd.toString();
-                }
-            }
-        } catch (Exception ignored) {}
-        return "admin123";
     }
 
     /** 检测 Docker 是否可用（结果缓存） */

@@ -39,7 +39,6 @@ export default function PipelineList() {
   const [buildSkipDocker, setBuildSkipDocker] = useState(false)
   const [buildSkipK8s, setBuildSkipK8s] = useState(false)
   const [buildDbName, setBuildDbName] = useState('')
-  const [buildAdminPassword, setBuildAdminPassword] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -123,7 +122,6 @@ export default function PipelineList() {
     const proj = projects.find(pr => pr.id === pid)
     const defaultDb = proj?.code ? `devops_${proj.code.replace(/[^a-zA-Z0-9_-]/g, '_')}` : ''
     setBuildDbName(defaultDb)
-    setBuildAdminPassword('')
     setShowBuildModal(true)
   }
 
@@ -135,8 +133,7 @@ export default function PipelineList() {
     try {
       await triggerBuild(projectId, pipeline.id, null, null,
         buildSkipDocker, buildSkipK8s,
-        buildDbName || null,
-        buildAdminPassword || null)
+        buildDbName || null)
       setToast({ text: '构建已触发！可在"构建记录"中查看进度', type: 'info' })
       setTimeout(() => setToast(null), 3000)
     } catch (e) {
@@ -361,20 +358,6 @@ export default function PipelineList() {
                   value={buildDbName}
                   onChange={e => setBuildDbName(e.target.value)}
                   placeholder="devops_app"
-                  style={{
-                    width: '100%', padding: '6px 10px', marginTop: 2,
-                    border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13,
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </label>
-              <label style={{ display: 'block' }}>
-                <span style={{ fontSize: 11, color: '#6b7280' }}>管理员密码（留空则默认 admin123）</span>
-                <input
-                  type="text"
-                  value={buildAdminPassword}
-                  onChange={e => setBuildAdminPassword(e.target.value)}
-                  placeholder="admin123"
                   style={{
                     width: '100%', padding: '6px 10px', marginTop: 2,
                     border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13,
