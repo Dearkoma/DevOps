@@ -6,7 +6,8 @@ import {
   fetchAvailability, fetchK8sStatus, reconnectK8s,
   deleteInstance, restartInstance, stopInstance, startInstance,
   fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment,
-  getAccessInfo, exposeToExternal, getInstanceLogs, getInstanceContainers
+  getAccessInfo, exposeToExternal, getInstanceLogs, getInstanceContainers,
+  fetchDockerContainers
 } from '../api'
 
 function useActivePage() {
@@ -25,6 +26,7 @@ export default function InstanceList() {
   const [stats, setStats] = useState(null)
   const [statsByType, setStatsByType] = useState(null)
   const [dockerStatus, setDockerStatus] = useState(null)
+  const [dockerContainers, setDockerContainers] = useState([])
   const [k8sStatus, setK8sStatus] = useState(null)
   const [reconnecting, setReconnecting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
@@ -83,6 +85,17 @@ export default function InstanceList() {
   useEffect(() => {
     if (page === 'k8s' && k8sStatus?.connected) loadDeployments()
   }, [page, k8sStatus?.connected, loadDeployments])
+
+  // Docker 容器列表：仅在 Docker 页面加载
+  const loadDockerContainers = useCallback(async () => {
+    if (!dockerStatus?.connected) return
+    try { setDockerContainers(await fetchDockerContainers() || []) }
+    catch { setDockerContainers([]) }
+  }, [dockerStatus?.connected])
+
+  useEffect(() => {
+    if (page === 'docker' && dockerStatus?.connected) loadDockerContainers()
+  }, [page, dockerStatus?.connected, loadDockerContainers])
 
   const handleReconnect = async () => {
     setReconnecting(true)
@@ -260,7 +273,7 @@ export default function InstanceList() {
   return (
     <>
       {page === 'instances' && <AllInstancesView instances={instances} stats={stats} {...shared} />}
-      {page === 'docker'    && <DockerView dockerStatus={dockerStatus} statsByType={statsByType} dockerInstances={instances.filter(i => i.deployType === 'DOCKER')} {...shared} />}
+      {page === 'docker'    && <DockerView dockerStatus={dockerStatus} dockerContainers={dockerContainers} loadDockerContainers={loadDockerContainers} />}
       {page === 'k8s'       && <K8sView
         k8sStatus={k8sStatus} reconnecting={reconnecting} handleReconnect={handleReconnect}
         statsByType={statsByType} k8sInstances={instances.filter(i => i.deployType === 'K8S')}
@@ -431,27 +444,26 @@ function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget,
   )
 }
 
-function DockerView({ dockerStatus, statsByType, dockerInstances, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole }) {
-  const dStats = statsByType?.docker
+function DockerView({ dockerStatus, dockerContainers, loadDockerContainers }) {
+  const runningCount = dockerContainers.filter(c => c.state === 'running').length
+  const stoppedCount = dockerContainers.filter(c => c.state !== 'running').length
+
   return (
     <>
       <div className="page-header">
-        <h2>🐳 Docker 服务实例</h2>
-        <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 刷新</button>
+        <h2>🐳 Docker 容器状态</h2>
+        <button className="btn btn-outline btn-sm" onClick={loadDockerContainers}>🔄 刷新</button>
       </div>
       {dockerStatus && <StatusBar connected={dockerStatus.connected} label="Docker" version={dockerStatus.version} message={dockerStatus.message} error={dockerStatus.error} />}
       {dockerStatus?.connected && (
         <div className="stats-grid" style={{ marginBottom: 16 }}>
-          <StatCard label="容器总数" value={dockerStatus.totalContainers ?? 0} />
-          <StatCard label="运行中容器" value={dockerStatus.containersRunning ?? 0} color="#22c55e" />
-          <StatCard label="已停止容器" value={dockerStatus.containersStopped ?? 0} color="#f59e0b" />
+          <StatCard label="容器总数" value={dockerContainers.length} />
+          <StatCard label="运行中容器" value={runningCount} color="#22c55e" />
+          <StatCard label="已停止容器" value={stoppedCount} color="#f59e0b" />
           <StatCard label="镜像数" value={dockerStatus.images ?? 0} color="#6366f1" />
         </div>
       )}
-      {dStats && <TypeStats summary={dStats} label="Docker" />}
-      <InstanceTable instances={dockerInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
-        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
-        logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} containersData={containersData} activeLogRole={activeLogRole} />
+      {dockerStatus?.connected && <DockerContainerTable containers={dockerContainers} />}
     </>
   )
 }
@@ -543,6 +555,52 @@ function PodList({ pods, count }) {
             border: '1px solid ' + (pod.status === 'Running' ? '#86efac' : '#fde68a'),
           }}>{pod.name} <span style={{ marginLeft: 4, opacity: 0.7 }}>({pod.status === 'Running' ? '运行中' : pod.status})</span></span>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function DockerContainerTable({ containers }) {
+  if (!containers || containers.length === 0) return (
+    <div className="card"><div className="empty-state"><div className="icon">📦</div><p>无 Docker 容器</p><p style={{ fontSize: 12 }}>当前没有运行中的 Docker 容器（已排除 K8s 管理的容器）</p></div></div>
+  )
+  return (
+    <div className="card" style={{ padding: 0 }}>
+      <div className="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>容器名称</th>
+              <th>镜像</th>
+              <th>状态</th>
+              <th>运行信息</th>
+              <th>端口</th>
+            </tr>
+          </thead>
+          <tbody>
+            {containers.map((c, i) => {
+              const isRunning = c.state === 'running'
+              return (
+                <tr key={c.id || i}>
+                  <td style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 13 }}>{c.name}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#6b7280' }}>{c.image}</td>
+                  <td>
+                    <span className="badge" style={{
+                      background: isRunning ? '#dcfce7' : '#fef2f2',
+                      color: isRunning ? '#166534' : '#991b1b',
+                      fontSize: 11,
+                      border: '1px solid ' + (isRunning ? '#86efac' : '#fecaca'),
+                    }}>
+                      {isRunning ? '🟢 运行中' : '🔴 ' + (c.state || '已停止')}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: 12, color: '#6b7280' }}>{c.status}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 11, color: '#374151', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.ports}>{c.ports || '-'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   )

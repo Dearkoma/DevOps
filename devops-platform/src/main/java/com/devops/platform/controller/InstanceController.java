@@ -142,6 +142,14 @@ public class InstanceController {
     }
 
     /**
+     * 获取本机 Docker 容器列表（docker ps -a，排除 K8s 管理的容器）
+     */
+    @GetMapping("/docker-containers")
+    public ResponseEntity<List<Map<String, Object>>> getDockerContainers() {
+        return ResponseEntity.ok(monitorService.getDockerContainers());
+    }
+
+    /**
      * K8s 连通性检测
      * 使用 Kubernetes Java Client 连接集群，检查是否可用，并拉取 Pod 列表
      */

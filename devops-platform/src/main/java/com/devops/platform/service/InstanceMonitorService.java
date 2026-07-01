@@ -1397,4 +1397,78 @@ public class InstanceMonitorService {
         }
         return result;
     }
+
+    /**
+     * 获取本机所有 Docker 容器列表（docker ps -a）
+     * 排除 K8s 管理的容器（名称以 k8s_ 开头）
+     */
+    public List<Map<String, Object>> getDockerContainers() {
+        try {
+            // 先尝试 --format json（Docker 24+）
+            ProcessResult r = runCommand(dockerCommand + " ps -a --format json");
+            if (r.success && r.output != null && !r.output.isBlank()) {
+                return parseDockerPsJson(r.output);
+            }
+            // 回退：使用管道分隔符解析
+            r = runCommand(dockerCommand + " ps -a --format \"{{.ID}}\\t{{.Names}}\\t{{.Image}}\\t{{.State}}\\t{{.Status}}\\t{{.Ports}}\\t{{.CreatedAt}}\\t{{.RunningFor}}\"");
+            if (r.success && r.output != null && !r.output.isBlank()) {
+                return parseDockerPsTab(r.output);
+            }
+            return List.of();
+        } catch (Exception e) {
+            log.warn("获取 Docker 容器列表失败: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<Map<String, Object>> parseDockerPsJson(String output) {
+        java.util.List<Map<String, Object>> containers = new java.util.ArrayList<>();
+        for (String line : output.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+            try {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                @SuppressWarnings("unchecked")
+                Map<String, Object> raw = mapper.readValue(trimmed, Map.class);
+                String name = String.valueOf(raw.getOrDefault("Names", ""));
+                if (name.startsWith("k8s_")) continue;
+                Map<String, Object> info = new LinkedHashMap<>();
+                info.put("id", raw.getOrDefault("ID", ""));
+                info.put("name", name);
+                info.put("image", raw.getOrDefault("Image", ""));
+                info.put("state", raw.getOrDefault("State", ""));
+                info.put("status", raw.getOrDefault("Status", ""));
+                info.put("ports", raw.getOrDefault("Ports", ""));
+                info.put("createdAt", raw.getOrDefault("CreatedAt", ""));
+                info.put("runningFor", raw.getOrDefault("RunningFor", ""));
+                containers.add(info);
+            } catch (Exception e) {
+                log.debug("解析 Docker 容器 JSON 失败: {}", e.getMessage());
+            }
+        }
+        return containers;
+    }
+
+    private List<Map<String, Object>> parseDockerPsTab(String output) {
+        java.util.List<Map<String, Object>> containers = new java.util.ArrayList<>();
+        for (String line : output.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+            String[] parts = trimmed.split("\\t", -1);
+            if (parts.length < 8) continue;
+            String containerName = parts[1].trim();
+            if (containerName.startsWith("k8s_")) continue;
+            Map<String, Object> info = new LinkedHashMap<>();
+            info.put("id", parts[0].trim());
+            info.put("name", containerName);
+            info.put("image", parts[2].trim());
+            info.put("state", parts[3].trim());
+            info.put("status", parts[4].trim());
+            info.put("ports", parts[5].trim());
+            info.put("createdAt", parts[6].trim());
+            info.put("runningFor", parts[7].trim());
+            containers.add(info);
+        }
+        return containers;
+    }
 }

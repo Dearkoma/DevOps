@@ -172,6 +172,7 @@ export const getInstanceLogs = (id, tail = 200, container = null) => {
 export const getInstanceContainers = (id) => request(`/instances/${id}/containers`)
 export const fetchAvailability = () => request('/instances/availability')
 export const fetchStatsByType = () => request('/instances/stats-by-type')
+export const fetchDockerContainers = () => request('/instances/docker-containers')
 export const fetchK8sDeployments = (namespace = 'devops') => request(`/instances/k8s/deployments?namespace=${namespace}`)
 export const getK8sDeployment = (name, namespace = 'devops') => request(`/instances/k8s/deployments/${name}?namespace=${namespace}`)
 export const deleteK8sDeployment = (name, namespace = 'devops') => request(`/instances/k8s/deployments/${name}?namespace=${namespace}`, { method: 'DELETE' })
