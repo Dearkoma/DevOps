@@ -145,11 +145,22 @@ public class DatabaseProvisioningService {
     }
 
     /**
-     * 生成默认数据库名。
+     * 生成默认数据库名（含构建编号，确保每次部署独立数据库）。
+     */
+    public static String defaultDbName(String projectCode, String buildNumber) {
+        if (projectCode == null || projectCode.isBlank()) return "devops_app_" + buildNumber;
+        // 清理特殊字符，拼接构建编号
+        String code = sanitizeDbName(projectCode);
+        // 构建编号 #1 → 1，去掉 # 号
+        String num = buildNumber != null ? buildNumber.replace("#", "") : "0";
+        return "devops_" + code + "_" + num;
+    }
+
+    /**
+     * 兼容旧调用（不含构建编号，仅用于历史代码迁移）。
      */
     public static String defaultDbName(String projectCode) {
         if (projectCode == null || projectCode.isBlank()) return "devops_app";
-        // 清理特殊字符
         return "devops_" + sanitizeDbName(projectCode);
     }
 

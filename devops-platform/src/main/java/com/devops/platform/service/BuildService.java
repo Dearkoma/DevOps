@@ -164,11 +164,11 @@ public class BuildService {
         }
         String buildNumber = "#" + (count + 1);
 
-        // 数据库名：用户指定 > 默认规则 devops_<projectCode>
-        // 必须净化后再存储，确保与 createDatabase 实际创建的库名一致
+        // 数据库名：用户指定 > 默认规则 devops_<projectCode>_<buildNumber>
+        // 每次构建生成独立数据库，确保新部署的实例是全新的（0条数据）
         String effectiveDbName = (dbName != null && !dbName.isBlank())
                 ? DatabaseProvisioningService.sanitizeDbName(dbName)
-                : DatabaseProvisioningService.defaultDbName(project.getCode());
+                : DatabaseProvisioningService.defaultDbName(project.getCode(), buildNumber);
 
         // H2 模式：O 项目自带内嵌数据库，不需要在 D 项目 MySQL 上建库
         // MySQL 模式：在 D 项目能连到的 MySQL 上创建独立库（若用户指定了独立连接则 skip）
@@ -445,7 +445,7 @@ public class BuildService {
                 dockerInst.setProjectId(project.getId());
                 dockerInst.setProjectName(project.getName());
                 dockerInst.setDeployType("DOCKER");
-                dockerInst.setInstanceName(project.getCode() + "-docker");
+                dockerInst.setInstanceName(project.getCode() + "-docker-" + build.getBuildNumber().replace("#", ""));
                 dockerInst.setImageName(imageNameStr);
                 dockerInst.setImageTag("latest");
                 dockerInst.setHost("localhost");
@@ -457,16 +457,10 @@ public class BuildService {
                 dockerInst.setDbName(instDbName);
                 dockerInst.setAdminUsername("admin");
                 dockerInst.setAdminPassword("admin123");
-
-                List<ServiceInstance> existingDocker = instanceRepository.findByProjectIdAndDeployType(project.getId(), "DOCKER");
-                if (!existingDocker.isEmpty()) {
-                    ServiceInstance old = existingDocker.get(0);
-                    dockerInst.setId(old.getId());
-                    dockerInst.setCreatedAt(old.getCreatedAt());
-                }
                 instanceRepository.save(dockerInst);
                 logBuf.append("[INSTANCE] Docker 实例: ").append(dockerInst.getInstanceName()).append("\n");
                 logBuf.append("[INSTANCE] 镜像: ").append(dockerInst.getImageName()).append(":").append(dockerInst.getImageTag()).append("\n");
+                logBuf.append("[INSTANCE] 数据库: ").append(instDbName).append("\n");
             }
 
             // K8s 实例
@@ -475,7 +469,7 @@ public class BuildService {
                 k8sInst.setProjectId(project.getId());
                 k8sInst.setProjectName(project.getName());
                 k8sInst.setDeployType("K8S");
-                k8sInst.setInstanceName(project.getCode() + "-k8s");
+                k8sInst.setInstanceName(project.getCode() + "-k8s-" + build.getBuildNumber().replace("#", ""));
                 k8sInst.setK8sNamespace(k8sNamespace);
                 k8sInst.setK8sPodName(project.getCode());
                 k8sInst.setImageName(imageNameStr);
@@ -486,13 +480,6 @@ public class BuildService {
                 k8sInst.setDbName(instDbName);
                 k8sInst.setAdminUsername("admin");
                 k8sInst.setAdminPassword("admin123");
-
-                List<ServiceInstance> existingK8s = instanceRepository.findByProjectIdAndDeployType(project.getId(), "K8S");
-                if (!existingK8s.isEmpty()) {
-                    ServiceInstance old = existingK8s.get(0);
-                    k8sInst.setId(old.getId());
-                    k8sInst.setCreatedAt(old.getCreatedAt());
-                }
                 instanceRepository.save(k8sInst);
                 logBuf.append("[INSTANCE] K8s 实例: ").append(k8sInst.getInstanceName()).append("\n");
                 logBuf.append("[INSTANCE] 命名空间: ").append(k8sNamespace).append("\n");
@@ -793,9 +780,9 @@ public class BuildService {
             hasFrontend = Files.exists(workspacePath.resolve("frontend"));
         } catch (IOException ignored) {}
 
-        // 数据库名：使用构建时指定的独立库，若未指定则自动生成
+        // 数据库名：使用构建时指定的独立库（已含构建编号），兜底也用带编号的
         String targetDb = (dbName != null && !dbName.isBlank()) ? dbName
-                : DatabaseProvisioningService.defaultDbName(project.getCode());
+                : DatabaseProvisioningService.defaultDbName(project.getCode(), "0");
 
         // 数据库连接：H2 模式零依赖；MySQL 模式注入项目自己的连接信息
         boolean useH2 = project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());

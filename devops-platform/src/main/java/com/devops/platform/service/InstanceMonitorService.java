@@ -1235,7 +1235,8 @@ public class InstanceMonitorService {
         boolean useH2 = project == null || project.getDbType() == null || "H2".equalsIgnoreCase(project.getDbType());
         if (!useH2) {
             String targetDb = (inst.getDbName() != null && !inst.getDbName().isBlank())
-                    ? inst.getDbName() : "devops_platform";
+                    ? inst.getDbName() : DatabaseProvisioningService.defaultDbName(
+                            project.getCode() != null ? project.getCode() : "app", "0");
             String dbHost = project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";
             int dbPort = project.getDbPort() != null ? project.getDbPort() : 3306;
             String dbUser = project.getDbUsername() != null ? project.getDbUsername() : "root";
