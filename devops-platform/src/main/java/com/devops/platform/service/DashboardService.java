@@ -3,6 +3,8 @@ package com.devops.platform.service;
 import com.devops.platform.entity.Build;
 import com.devops.platform.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -64,8 +66,10 @@ public class DashboardService {
     }
 
     public List<Map<String, Object>> getRecentBuilds(int limit) {
-        List<Build> builds = buildRepository.findAll();
-        builds.sort((a, b) -> b.getStartTime().compareTo(a.getStartTime()));
+        // 使用分页查询替代全量加载到内存，避免 OOM
+        List<Build> builds = buildRepository.findAll(
+                PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "startTime"))
+        ).getContent();
         List<Map<String, Object>> result = new ArrayList<>();
         for (int i = 0; i < Math.min(limit, builds.size()); i++) {
             Build b = builds.get(i);
@@ -116,13 +120,17 @@ public class DashboardService {
     }
 
     private long calculateAvgBuildTime() {
-        List<Build> all = buildRepository.findByStatus("SUCCESS");
-        if (all.isEmpty()) return 0;
-        long total = all.stream()
-                .filter(b -> b.getDurationMs() != null)
+        // 只取最近 100 条成功构建计算平均耗时，避免将所有数据加载到内存
+        List<Build> recent = buildRepository.findAll(
+                PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "startTime"))
+        ).getContent();
+        long total = recent.stream()
+                .filter(b -> "SUCCESS".equals(b.getStatus()) && b.getDurationMs() != null)
                 .mapToLong(Build::getDurationMs)
                 .sum();
-        long count = all.stream().filter(b -> b.getDurationMs() != null).count();
+        long count = recent.stream()
+                .filter(b -> "SUCCESS".equals(b.getStatus()) && b.getDurationMs() != null)
+                .count();
         return count > 0 ? total / count : 0;
     }
 }

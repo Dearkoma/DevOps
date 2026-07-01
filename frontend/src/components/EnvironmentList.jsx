@@ -47,6 +47,7 @@ export default function EnvironmentList() {
   }
 
   const handleSave = async () => {
+    if (!form.name?.trim()) { alert('环境名称不能为空'); return }
     try {
       if (editing) {
         await updateEnvironment(editing.id, form)
@@ -171,7 +172,7 @@ export default function EnvironmentList() {
               </div>
               <div className="form-group">
                 <label>受保护环境</label>
-                <select value={form.protectedEnv} onChange={e => setForm({...form, protectedEnv: e.target.value === 'true'})}>
+                <select value={String(form.protectedEnv)} onChange={e => setForm({...form, protectedEnv: e.target.value === 'true'})}>
                   <option value="false">否</option>
                   <option value="true">是 (需审批)</option>
                 </select>

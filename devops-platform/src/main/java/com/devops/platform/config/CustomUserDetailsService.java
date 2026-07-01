@@ -25,7 +25,8 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findByUsernameIgnoreCase(username)
                 .orElseThrow(() -> new UsernameNotFoundException("用户不存在: " + username));
 
-        if (!user.getEnabled()) {
+        // 使用 Boolean.TRUE.equals 做空安全比较，避免 NPE
+        if (!Boolean.TRUE.equals(user.getEnabled())) {
             throw new UsernameNotFoundException("账号已被禁用: " + username);
         }
 

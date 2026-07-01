@@ -8,6 +8,7 @@ import com.devops.platform.repository.ProjectRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -33,8 +34,10 @@ public class SchedulerService {
             if (!Boolean.TRUE.equals(pipeline.getCronEnabled())) continue;
 
             try {
-                // 简单 Cron 检查：解析分钟级 cron 表达式
-                if (shouldRunNow(pipeline.getCronExpression(), now)) {
+                // 使用 Spring 内置 CronExpression 替代手写解析器
+                CronExpression cron = CronExpression.parse(pipeline.getCronExpression());
+                LocalDateTime next = cron.next(now.minusMinutes(1));
+                if (next != null && !next.isAfter(now) && next.isAfter(now.minusMinutes(1))) {
                     Project project = projectRepository.findById(pipeline.getProjectId()).orElse(null);
                     if (project == null) continue;
 
@@ -44,41 +47,22 @@ public class SchedulerService {
                             project.getName(), pipeline.getName(), build.getBuildNumber());
                 }
             } catch (Exception e) {
-                log.warn("定时构建检查异常: pipeline={}, error={}", pipeline.getId(), e.getMessage());
+                log.warn("定时构建检查异常: pipeline={}, cron={}, error={}",
+                        pipeline.getId(), pipeline.getCronExpression(), e.getMessage());
             }
         }
     }
 
-    /** 简单 Cron 检查（支持分钟级表达式：分 时 日 月 周） */
-    private boolean shouldRunNow(String cronExpression, LocalDateTime now) {
-        String[] parts = cronExpression.trim().split("\\s+");
-        if (parts.length < 5) return false;
-
-        return matches(parts[0], now.getMinute(), 0, 59)
-                && matches(parts[1], now.getHour(), 0, 23)
-                && matches(parts[2], now.getDayOfMonth(), 1, 31)
-                && matches(parts[3], now.getMonthValue(), 1, 12)
-                && matches(parts[4], now.getDayOfWeek().getValue() % 7, 0, 6);
-    }
-
-    private boolean matches(String cronField, int value, int min, int max) {
-        if (cronField.equals("*")) return true;
-        for (String part : cronField.split(",")) {
-            if (part.contains("/")) {
-                String[] stepParts = part.split("/");
-                int step = Integer.parseInt(stepParts[1]);
-                String range = stepParts[0];
-                int start = range.equals("*") ? min : Integer.parseInt(range);
-                if (value >= start && (value - start) % step == 0) return true;
-            } else if (part.contains("-")) {
-                String[] rangeParts = part.split("-");
-                int start = Integer.parseInt(rangeParts[0]);
-                int end = Integer.parseInt(rangeParts[1]);
-                if (value >= start && value <= end) return true;
-            } else {
-                if (Integer.parseInt(part) == value) return true;
-            }
+    /**
+     * 验证 Cron 表达式是否有效
+     */
+    public static boolean isValidCron(String cronExpression) {
+        if (cronExpression == null || cronExpression.isBlank()) return false;
+        try {
+            CronExpression.parse(cronExpression);
+            return true;
+        } catch (Exception e) {
+            return false;
         }
-        return false;
     }
 }

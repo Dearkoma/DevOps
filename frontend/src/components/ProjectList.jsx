@@ -102,6 +102,8 @@ export default function ProjectList() {
   }
 
   const handleSave = async () => {
+    if (!form.name?.trim()) { alert('项目名称不能为空'); return }
+    if (!form.code?.trim()) { alert('项目编码不能为空'); return }
     try {
       if (editing) {
         await updateProject(editing.id, form)

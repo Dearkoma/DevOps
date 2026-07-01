@@ -106,10 +106,15 @@ export default function InstanceList() {
   }
 
   const handleDeleteInstance = async () => {
-    const r = await deleteInstance(deleteTarget.id)
-    setDeleteTarget(null)
-    alert(r?.message || '已删除')
-    loadAll()
+    try {
+      const r = await deleteInstance(deleteTarget.id)
+      setDeleteTarget(null)
+      alert(r?.message || '已删除')
+      loadAll()
+    } catch (e) {
+      alert('删除失败: ' + (e.message || '未知错误'))
+      // 保留弹窗，让用户知道操作失败
+    }
   }
 
   const handleRestartInstance = async () => {

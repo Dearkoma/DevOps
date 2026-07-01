@@ -149,8 +149,10 @@ public class DeploymentService {
             return historyRepository.findByProjectIdAndEnvironmentIdOrderByDeployedAtDesc(projectId, environmentId);
         } else if (projectId != null) {
             return historyRepository.findByProjectIdOrderByDeployedAtDesc(projectId);
-        } else {
+        } else if (environmentId != null) {
             return historyRepository.findByEnvironmentIdOrderByDeployedAtDesc(environmentId);
+        } else {
+            return historyRepository.findAll(); // 无筛选条件时返回全部
         }
     }
 

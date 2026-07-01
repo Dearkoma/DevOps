@@ -157,7 +157,11 @@ public class BuildService {
         Pipeline pipeline = pipelineRepository.findById(pipelineId)
                 .orElseThrow(() -> new RuntimeException("流水线不存在: " + pipelineId));
 
-        long count = buildRepository.count();
+        // 构建编号原子性递增（synchronized 避免并发时编号重复）
+        long count;
+        synchronized (this) {
+            count = buildRepository.count();
+        }
         String buildNumber = "#" + (count + 1);
 
         // 数据库名：用户指定 > 默认规则 devops_<projectCode>

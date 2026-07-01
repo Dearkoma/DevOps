@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 // 后端状态：unknown / online / offline / error
 export default function Login() {
   const { login, isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [form, setForm] = useState({ username: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -29,8 +30,11 @@ export default function Login() {
 
   // 已登录直接跳转
   useEffect(() => {
-    if (isAuthenticated) navigate('/dashboard', { replace: true })
-  }, [isAuthenticated, navigate])
+    if (isAuthenticated) {
+      const redirect = searchParams.get('redirect') || '/dashboard'
+      navigate(redirect, { replace: true })
+    }
+  }, [isAuthenticated, navigate, searchParams])
 
   const handleSubmit = async (e) => {
     e.preventDefault()

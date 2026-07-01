@@ -7,16 +7,30 @@ function getToken() {
 
 async function request(url, options = {}) {
   const token = getToken()
-  const headers = { 'Content-Type': 'application/json', ...options.headers }
+  const headers = { ...options.headers }
+  // 仅在请求有 body 且未手动设置 Content-Type 时使用 JSON
+  if (options.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json'
+  }
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
+  // 请求超时（30 秒）
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30000)
+  const signal = options.signal || controller.signal
+
   let res
   try {
-    res = await fetch(BASE + url, { ...options, headers })
+    res = await fetch(BASE + url, { ...options, headers, signal })
+    clearTimeout(timeoutId)
   } catch (err) {
+    clearTimeout(timeoutId)
+    if (err.name === 'AbortError') {
+      throw new Error('请求超时，后端服务响应过慢')
+    }
     // 网络错误（ECONNREFUSED 等）
     if (err.message.includes('Failed to fetch') || err.name === 'TypeError') {
       throw new Error('无法连接后端服务，请确认 Spring Boot 应用已在端口 8080 启动')
@@ -34,13 +48,13 @@ async function request(url, options = {}) {
       message = text
     }
 
-    // 401 → 清除 token 并跳转登录
+    // 401 → 清除 token 并通过自定义事件通知 AuthContext 登出
     if (res.status === 401) {
       localStorage.removeItem('devops_token')
       localStorage.removeItem('devops_user')
-      // 非登录接口才跳转
+      // 非登录接口才通知登出
       if (!url.startsWith('/auth/')) {
-        window.location.href = '/login'
+        window.dispatchEvent(new CustomEvent('auth:logout'))
       }
     }
 

@@ -39,7 +39,17 @@ export function AuthProvider({ children }) {
     } else {
       setLoading(false)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  // 监听 api.js 发起的 auth:logout 事件，用于 401 退出登录
+  useEffect(() => {
+    const handleAuthLogout = () => {
+      setToken(null)
+      setUser(null)
+    }
+    window.addEventListener('auth:logout', handleAuthLogout)
+    return () => window.removeEventListener('auth:logout', handleAuthLogout)
+  }, [])
 
   const login = useCallback((authResponse) => {
     setToken(authResponse.token)

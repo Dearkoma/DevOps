@@ -13,6 +13,7 @@ export default function BuildList() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null) // { text, type: 'success'|'error'|'info' }
   const prevStatusRef = useRef({}) // buildId → status, 用于检测完成
+  const toastTimerRef = useRef(null) // 用于防止多个 toast 互相覆盖
   const [statusFilter, setStatusFilter] = useState('')
   const [logModal, setLogModal] = useState(null)
   const [logText, setLogText] = useState('')
@@ -79,8 +80,11 @@ export default function BuildList() {
   }, [statusFilter])
 
   // 初始加载（仅一次）
-  const initRef = useRef(true)
   useEffect(() => { load(true) }, [load])
+
+  // 保持 load 函数最新引用，避免轮询中的 stale closure
+  const loadRef = useRef(load)
+  useEffect(() => { loadRef.current = load }, [load])
 
   // ===== 静默自动刷新：有运行中构建时每 3 秒更新数据，不触发 loading 状态 =====
   useEffect(() => {
@@ -96,11 +100,13 @@ export default function BuildList() {
       const prev = prevStatusRef.current[b.id]
       if (prev === 'RUNNING' && (b.status === 'SUCCESS' || b.status === 'FAILED')) {
         const isSuccess = b.status === 'SUCCESS'
+        // 清除旧的 toast 定时器，避免互相覆盖
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
         setToast({
           text: `构建 ${b.buildNumber} ${isSuccess ? '完成 ✅' : '失败 ❌'} — ${isSuccess ? '部署已就绪' : '请查看构建日志'}`,
           type: isSuccess ? 'success' : 'error'
         })
-        setTimeout(() => setToast(null), 5000)
+        toastTimerRef.current = setTimeout(() => setToast(null), 5000)
       }
       prevStatusRef.current[b.id] = b.status
     })
@@ -108,6 +114,16 @@ export default function BuildList() {
 
   // WebSocket log connection (fallback: polling)
   const logPollRef = useRef(null)
+
+  // 组件卸载时清除日志轮询定时器（防止内存泄漏）
+  useEffect(() => {
+    return () => {
+      if (logPollRef.current) {
+        clearInterval(logPollRef.current)
+        logPollRef.current = null
+      }
+    }
+  }, [])
 
   const startLogPolling = useCallback((buildId) => {
     if (logPollRef.current) clearInterval(logPollRef.current)
@@ -122,7 +138,7 @@ export default function BuildList() {
           setLogConnected(false)
           clearInterval(logPollRef.current)
           logPollRef.current = null
-          load(false)
+          loadRef.current(false)  // 使用最新 load 引用，避免 stale closure
         }
       } catch {}
     }, 2000)
@@ -346,7 +362,10 @@ export default function BuildList() {
                           {b.status === 'RUNNING' ? '📡 实时' : '📄 日志'}
                         </button>
                         {b.status === 'RUNNING' && canManage && (
-                          <button className="btn btn-danger btn-sm" onClick={async () => { await cancelBuild(b.id); load(false) }}>⏹ 取消</button>
+                          <button className="btn btn-danger btn-sm" onClick={async () => {
+                            try { await cancelBuild(b.id); load(false) }
+                            catch (e) { alert('取消失败: ' + (e.message || '未知错误')) }
+                          }}>⏹ 取消</button>
                         )}
                         {b.status !== 'RUNNING' && canManage && (
                           <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(b)}>🗑 删除</button>

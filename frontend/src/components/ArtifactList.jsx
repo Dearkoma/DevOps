@@ -67,9 +67,13 @@ export default function ArtifactList() {
   }
 
   const handleDownload = (artifact) => {
-    // Try direct download URL first, fallback to file path
-    const url = artifact.downloadUrl || `/api/artifacts/${artifact.id}/download`
-    window.open(url, '_blank')
+    const url = artifact.downloadUrl
+    // 安全检查：防止 javascript: 等危险协议
+    if (url && !url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('/')) {
+      alert('无效的下载链接')
+      return
+    }
+    window.open(url || `/api/artifacts/${artifact.id}/download`, '_blank', 'noopener,noreferrer')
   }
 
   return (
