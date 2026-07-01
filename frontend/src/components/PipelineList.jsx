@@ -40,6 +40,25 @@ export default function PipelineList() {
   const [buildSkipK8s, setBuildSkipK8s] = useState(false)
   const [buildDbName, setBuildDbName] = useState('')
 
+  // 数据库名净化（与后端 DatabaseProvisioningService.sanitizeDbName 一致）
+  const sanitizeDbName = (raw) => {
+    if (!raw || !raw.trim()) return ''
+    let clean = raw.trim().replace(/[^a-zA-Z0-9_\-]+/g, '_')
+    clean = clean.replace(/^-+/, '').replace(/^_+/, '')
+    return clean || 'app'
+  }
+  // 实时预览有效数据库名
+  const getProjectForBuild = () => {
+    if (!buildPendingPipeline) return null
+    return projects.find(p => p.id === buildPendingPipeline.projectId)
+  }
+  const effectiveDbPreview = buildDbName
+    ? sanitizeDbName(buildDbName)
+    : (() => {
+        const proj = getProjectForBuild()
+        return proj?.code ? `devops_${sanitizeDbName(proj.code)}` : 'devops_app'
+      })()
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -357,13 +376,16 @@ export default function PipelineList() {
                   type="text"
                   value={buildDbName}
                   onChange={e => setBuildDbName(e.target.value)}
-                  placeholder="devops_app"
+                  placeholder={`devops_${getProjectForBuild()?.code || 'app'}`}
                   style={{
                     width: '100%', padding: '6px 10px', marginTop: 2,
                     border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13,
                     boxSizing: 'border-box'
                   }}
                 />
+                <span style={{ fontSize: 11, color: '#047857' }}>
+                  📌 将创建数据库: <strong>{effectiveDbPreview}</strong>
+                </span>
               </label>
             </div>
             <div style={{

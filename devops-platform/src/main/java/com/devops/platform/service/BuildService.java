@@ -123,8 +123,10 @@ public class BuildService {
         String buildNumber = "#" + (count + 1);
 
         // 数据库名：用户指定 > 默认规则 devops_<projectCode>
+        // 必须净化后再存储，确保与 createDatabase 实际创建的库名一致
         String effectiveDbName = (dbName != null && !dbName.isBlank())
-                ? dbName : DatabaseProvisioningService.defaultDbName(project.getCode());
+                ? DatabaseProvisioningService.sanitizeDbName(dbName)
+                : DatabaseProvisioningService.defaultDbName(project.getCode());
 
         // 在构建前先创建独立数据库（失败不阻塞构建，部署时还有一次兜底）
         dbProvisioningService.createDatabase(effectiveDbName);
@@ -736,8 +738,9 @@ public class BuildService {
             hasFrontend = Files.exists(workspacePath.resolve("frontend"));
         } catch (IOException ignored) {}
 
-        // 数据库名：使用构建时指定的独立库，若未指定则回退（保持向后兼容）
-        String targetDb = (dbName != null && !dbName.isBlank()) ? dbName : "devops_platform";
+        // 数据库名：使用构建时指定的独立库，若未指定则自动生成
+        String targetDb = (dbName != null && !dbName.isBlank()) ? dbName
+                : DatabaseProvisioningService.defaultDbName(project.getCode());
 
         // Java/Spring Boot 项目需要连接宿主机 MySQL
         String envSection = "";

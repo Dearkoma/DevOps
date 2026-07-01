@@ -45,6 +45,18 @@ export default function ProjectList() {
   const [buildDbName, setBuildDbName] = useState('')
   const [toast, setToast] = useState(null) // { text, type: 'success'|'error'|'info' }
 
+  // 数据库名净化（与后端 DatabaseProvisioningService.sanitizeDbName 一致）
+  const sanitizeDbName = (raw) => {
+    if (!raw || !raw.trim()) return ''
+    let clean = raw.trim().replace(/[^a-zA-Z0-9_\-]+/g, '_')
+    clean = clean.replace(/^-+/, '').replace(/^_+/, '')
+    return clean || 'app'
+  }
+  // 实时预览有效数据库名
+  const effectiveDbPreview = buildDbName
+    ? sanitizeDbName(buildDbName)
+    : (detailProject?.code ? `devops_${sanitizeDbName(detailProject.code)}` : 'devops_app')
+
   const load = useCallback(async () => {
     setLoading(true)
     try { setProjects(await fetchProjects()) } catch (e) { console.error(e) }
@@ -632,6 +644,9 @@ export default function ProjectList() {
                     boxSizing: 'border-box'
                   }}
                 />
+                <span style={{ fontSize: 11, color: '#047857' }}>
+                  📌 将创建数据库: <strong>{effectiveDbPreview}</strong>
+                </span>
               </label>
             </div>
 

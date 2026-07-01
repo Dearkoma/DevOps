@@ -42,11 +42,8 @@ public class DatabaseProvisioningService {
             return false;
         }
 
-        // 清理数据库名中的特殊字符（防止 SQL 注入）
-        String safeName = dbName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-        if (!safeName.equals(dbName)) {
-            log.warn("数据库名含特殊字符，已净化: '{}' -> '{}'", dbName, safeName);
-        }
+        // 清理数据库名中的特殊字符（防止 SQL 注入和非法名称）
+        String safeName = sanitizeDbName(dbName);
 
         // 提取 MySQL 连接基础 URL（去掉数据库名和参数部分，用于执行 DDL）
         String baseUrl = extractBaseJdbcUrl(datasourceUrl);
@@ -100,6 +97,20 @@ public class DatabaseProvisioningService {
     public static String defaultDbName(String projectCode) {
         if (projectCode == null || projectCode.isBlank()) return "devops_app";
         // 清理特殊字符
-        return "devops_" + projectCode.replaceAll("[^a-zA-Z0-9_\\-]", "_");
+        return "devops_" + sanitizeDbName(projectCode);
+    }
+
+    /**
+     * 净化数据库名（移除非法字符，仅保留字母数字下划线和连字符）。
+     * 与 createDatabase 内部净化逻辑一致，确保存储的名称与数据库实际名称匹配。
+     */
+    public static String sanitizeDbName(String raw) {
+        if (raw == null || raw.isBlank()) return "devops_app";
+        // 去首尾空白；替换连续非法字符为单个下划线
+        String clean = raw.trim().replaceAll("[^a-zA-Z0-9_\\-]+", "_");
+        // MySQL 数据库名不能以连字符开关
+        clean = clean.replaceAll("^-+", "").replaceAll("^_+", "");
+        if (clean.isEmpty()) clean = "app";
+        return clean;
     }
 }
