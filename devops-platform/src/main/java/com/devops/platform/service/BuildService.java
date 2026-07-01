@@ -773,6 +773,22 @@ public class BuildService {
                 yamlContent = yamlContent.replaceAll(
                         "(?m)^(\\s*)replicas:\\s*\\d+\\s*$",
                         "$1replicas: " + randomReplicas);
+                // 修正 host.docker.internal（K8s 容器不解析这个地址）
+                // K8s 容器内需要用 hostNetwork 或 Node IP 访问宿主机
+                // 单节点开发环境: 使用 127.0.0.1（需 hostNetwork: true）或 host.docker.internal
+                // 更稳妥: 让用户配置 K8S_DB_HOST，否则默认用 127.0.0.1
+                String k8sDbHost = System.getenv().getOrDefault("K8S_DB_HOST", "127.0.0.1");
+                if (yamlContent.contains("host.docker.internal")) {
+                    yamlContent = yamlContent.replaceAll("host\\.docker\\.internal", k8sDbHost);
+                    logBuf.append("[K8S] 已将 SPRING_DATASOURCE_URL 的 host.docker.internal 替换为 ").append(k8sDbHost).append("\n");
+                }
+                // 若没有 hostNetwork 字段，加上以便能访问到宿主机
+                if (!yamlContent.contains("hostNetwork:") && !yamlContent.contains("hostNetwork:")) {
+                    yamlContent = yamlContent.replaceFirst(
+                            "(\\s+containers:\\s*\\n)",
+                            "$1      hostNetwork: true\n");
+                    logBuf.append("[K8S] 已自动添加 hostNetwork: true (K8s 容器访问宿主机数据库)\n");
+                }
                 Files.writeString(deployPath, yamlContent);
                 logBuf.append("[K8S] 已更新 deployment.yaml replicas=").append(randomReplicas).append("\n");
             } catch (IOException ex) {
@@ -947,9 +963,16 @@ public class BuildService {
 
         // 数据库连接：H2 模式零依赖；MySQL 模式注入连接信息（db_type 为 NULL 时默认 MySQL）
         boolean useH2 = "H2".equalsIgnoreCase(project.getDbType());
+        // K8s 容器需要访问宿主机 MySQL，host.docker.internal 在 K8s 容器里不解析
+        // 单节点 K8s: 用 127.0.0.1 + hostNetwork: true
+        // 可通过环境变量 K8S_DB_HOST 自定义（如 docker-desktop 用户可写 host.docker.internal）
+        String dbHost = useH2 ? (project.getDbHost() != null ? project.getDbHost() : "host.docker.internal")
+                : (project.getDbHost() != null ? project.getDbHost() : System.getenv().getOrDefault("K8S_DB_HOST", "127.0.0.1"));
+        // K8s 场景默认开启 hostNetwork，方便访问宿主机
+        boolean needHostNetwork = !useH2;
         String envSection = "";
+        String hostNetworkLine = needHostNetwork ? "          hostNetwork: true\n" : "";
         if (!useH2) {
-            String dbHost = project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";
             int dbPort = project.getDbPort() != null ? project.getDbPort() : 3306;
             String dbUser = project.getDbUsername() != null ? project.getDbUsername() : "root";
             String dbPass = project.getDbPassword() != null ? project.getDbPassword() : "";
@@ -1001,6 +1024,7 @@ public class BuildService {
                 "      labels:\n" +
                 "        app: " + appName + "\n" +
                 "    spec:\n" +
+                hostNetworkLine +
                 "      containers:\n" +
                 "        - name: " + appName + "\n" +
                 "          image: " + image + "\n" +
