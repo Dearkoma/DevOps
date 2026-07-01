@@ -22,4 +22,7 @@ outputs/
 参考文献/
 
 # WorkBuddy 工作空间（非平台代码）
-.workbuddy/.mvn/wrapper/dists/
+.workbuddy/
+
+# Maven wrapper 下载缓存
+.mvn/wrapper/dists/
