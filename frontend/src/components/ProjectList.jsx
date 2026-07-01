@@ -11,6 +11,7 @@ const DEFAULT_FORM = {
   language: 'Java', framework: 'Spring Boot', buildCommand: 'mvn clean package -DskipTests',
   description: '',
   dbType: 'H2', dbHost: '', dbPort: 3306, dbUsername: '', dbPassword: '',
+  dockerfilePath: 'Dockerfile', dockerfileContent: '',
 }
 
 export default function ProjectList() {
@@ -97,6 +98,8 @@ export default function ProjectList() {
       buildCommand: p.buildCommand || '', description: p.description || '',
       dbType: p.dbType || 'H2', dbHost: p.dbHost || '', dbPort: p.dbPort || 3306,
       dbUsername: p.dbUsername || '', dbPassword: p.dbPassword || '',
+      dockerfilePath: p.dockerfilePath || 'Dockerfile',
+      dockerfileContent: p.dockerfileContent || '',
     })
     setShowModal(true)
   }
@@ -428,6 +431,28 @@ export default function ProjectList() {
               <label>描述</label>
               <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={2} />
             </div>
+
+            {/* Dockerfile 配置：当 O 项目仓库里没有 Dockerfile 时，在 D 平台托管 */}
+            <div className="form-section" style={{ marginTop: 12, padding: 12, background: '#f8fafc', borderRadius: 6 }}>
+              <h4 style={{ margin: '0 0 8px', fontSize: 13, color: '#475569' }}>🐳 Dockerfile 配置</h4>
+              <div className="detail-grid">
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                  <label>Dockerfile 路径（留空使用默认 Dockerfile）</label>
+                  <input value={form.dockerfilePath} onChange={e => setForm({...form, dockerfilePath: e.target.value})} placeholder="Dockerfile" />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Dockerfile 内容（O 项目仓库无 Dockerfile 时使用此处内容，留空则 O 项目必须自带）</label>
+                <textarea
+                  value={form.dockerfileContent}
+                  onChange={e => setForm({...form, dockerfileContent: e.target.value})}
+                  rows={8}
+                  placeholder={'# 示例: 简单 Spring Boot Dockerfile\nFROM eclipse-temurin:21-jre-alpine\nWORKDIR /app\nCOPY target/*.jar app.jar\nEXPOSE 8080\nENTRYPOINT ["java","-jar","/app/app.jar"]'}
+                  style={{ fontFamily: 'monospace', fontSize: 12 }}
+                />
+              </div>
+            </div>
+
             <div className="btn-group" style={{ justifyContent: 'flex-end', marginTop: 8 }}>
               <button className="btn btn-outline" onClick={() => setShowModal(false)}>取消</button>
               <button className="btn btn-primary" onClick={handleSave}>{editing ? '保存' : '创建'}</button>
@@ -452,6 +477,8 @@ export default function ProjectList() {
                 </div></div>
                 <div className="detail-item"><div className="label">分支</div><div className="value">{detailProject.gitBranch || 'main'}</div></div>
                 <div className="detail-item" style={{ gridColumn: '1 / -1' }}><div className="label">构建命令</div><div className="value"><code>{detailProject.buildCommand || '-'}</code></div></div>
+                <div className="detail-item" style={{ gridColumn: '1 / -1' }}><div className="label">Dockerfile 路径</div><div className="value"><code>{detailProject.dockerfilePath || 'Dockerfile'}</code></div></div>
+                <div className="detail-item" style={{ gridColumn: '1 / -1' }}><div className="label">Dockerfile 来源</div><div className="value">{detailProject.dockerfileContent ? 'D 平台托管（项目配置）' : 'O 项目仓库自带'}</div></div>
                 <div className="detail-item" style={{ gridColumn: '1 / -1' }}><div className="label">描述</div><div className="value">{detailProject.description || '-'}</div></div>
               </div>
 

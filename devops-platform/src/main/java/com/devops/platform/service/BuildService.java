@@ -640,14 +640,29 @@ public class BuildService {
         Path workspacePath = resolveWorkspaceRoot().resolve(project.getCode());
         Path buildContext = workspacePath;
 
-        // 确定 Dockerfile 路径：优先使用项目根目录下的 Dockerfile，其次使用 workspace 根目录的
-        String dockerfile = step.command.isBlank() ? "Dockerfile" : step.command;
+        // 确定 Dockerfile 路径：优先级
+        //   1) 项目配置的 dockerfilePath 字段（可指定子目录）
+        //   2) step.command（流水线里手填的）
+        //   3) 默认 "Dockerfile"
+        String dockerfile = (project.getDockerfilePath() != null && !project.getDockerfilePath().isBlank())
+                ? project.getDockerfilePath()
+                : (step.command.isBlank() ? "Dockerfile" : step.command);
         Path dockerfilePath = projectRoot.resolve(dockerfile);
         if (!Files.exists(dockerfilePath)) {
             // 检查 workspace 根目录是否有 Dockerfile
             Path workspaceDockerfile = workspacePath.resolve(dockerfile);
             if (Files.exists(workspaceDockerfile)) {
                 dockerfilePath = workspaceDockerfile;
+            } else if (project.getDockerfileContent() != null && !project.getDockerfileContent().isBlank()) {
+                // D 平台托管 Dockerfile：项目配置的 dockerfileContent 字段非空 → 写入项目根目录
+                try {
+                    Files.createDirectories(dockerfilePath.getParent() != null ? dockerfilePath.getParent() : projectRoot);
+                    Files.writeString(dockerfilePath, project.getDockerfileContent());
+                    logBuf.append("[DOCKER] 使用项目配置的 Dockerfile 写入: ").append(dockerfilePath).append("\n");
+                } catch (IOException e) {
+                    logBuf.append("[ERROR] 写入托管 Dockerfile 失败: ").append(e.getMessage()).append("\n");
+                    return false;
+                }
             }
         }
 

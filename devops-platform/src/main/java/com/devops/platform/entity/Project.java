@@ -40,6 +40,12 @@ public class Project {
     @Column(length = 200)
     private String startCommand;
 
+    @Column(length = 500)
+    private String dockerfileContent;  // D 平台为 O 项目托管的 Dockerfile 内容（O 项目仓库无 Dockerfile 时使用）
+
+    @Column(length = 200)
+    private String dockerfilePath = "Dockerfile";  // Dockerfile 路径（默认 Dockerfile，可改为 subdir/Dockerfile）
+
     @Column(length = 50)
     private String language = "Java";  // Java / Node.js / Python / Go
 
