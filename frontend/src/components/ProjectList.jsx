@@ -43,6 +43,7 @@ export default function ProjectList() {
   const [buildSkipDocker, setBuildSkipDocker] = useState(false)
   const [buildSkipK8s, setBuildSkipK8s] = useState(false)
   const [buildDbName, setBuildDbName] = useState('')
+  const [toast, setToast] = useState(null) // { text, type: 'success'|'error'|'info' }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -227,11 +228,16 @@ export default function ProjectList() {
     if (!detailProject || !buildPendingPipeline) return
     setShowBuildModal(false)
     try {
+      setToast({ text: '构建触发中...', type: 'info' })
       await triggerBuild(detailProject.id, buildPendingPipeline.id, null, null,
         buildSkipDocker, buildSkipK8s,
         buildDbName || null)
-      alert('构建已触发！')
-    } catch (e) { alert('触发失败: ' + e.message) }
+      setToast({ text: '构建已触发！可在"构建记录"中查看进度', type: 'info' })
+      setTimeout(() => setToast(null), 3000)
+    } catch (e) {
+      setToast({ text: '触发失败: ' + e.message, type: 'error' })
+      setTimeout(() => setToast(null), 4000)
+    }
   }
 
   const filtered = projects.filter(p =>
@@ -654,6 +660,13 @@ export default function ProjectList() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className={`toast toast-${toast.type}`}>
+          {toast.text}
         </div>
       )}
 

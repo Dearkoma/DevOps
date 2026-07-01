@@ -11,6 +11,8 @@ export default function BuildList() {
   const [builds, setBuilds] = useState([])
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
+  const [toast, setToast] = useState(null) // { text, type: 'success'|'error'|'info' }
+  const prevStatusRef = useRef({}) // buildId → status, 用于检测完成
   const [statusFilter, setStatusFilter] = useState('')
   const [logModal, setLogModal] = useState(null)
   const [logText, setLogText] = useState('')
@@ -87,6 +89,22 @@ export default function BuildList() {
     const timer = setInterval(() => load(false), 3000)
     return () => clearInterval(timer)
   }, [builds, load])
+
+  // ===== 检测构建完成并显示 toast 通知 =====
+  useEffect(() => {
+    builds.forEach(b => {
+      const prev = prevStatusRef.current[b.id]
+      if (prev === 'RUNNING' && (b.status === 'SUCCESS' || b.status === 'FAILED')) {
+        const isSuccess = b.status === 'SUCCESS'
+        setToast({
+          text: `构建 ${b.buildNumber} ${isSuccess ? '完成 ✅' : '失败 ❌'} — ${isSuccess ? '部署已就绪' : '请查看构建日志'}`,
+          type: isSuccess ? 'success' : 'error'
+        })
+        setTimeout(() => setToast(null), 5000)
+      }
+      prevStatusRef.current[b.id] = b.status
+    })
+  }, [builds])
 
   // WebSocket log connection (fallback: polling)
   const logPollRef = useRef(null)
@@ -503,6 +521,13 @@ export default function BuildList() {
               <span>每 2 秒刷新一次</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast notification — 构建完成提示 */}
+      {toast && (
+        <div className={`toast toast-${toast.type}`}>
+          {toast.text}
         </div>
       )}
     </>
