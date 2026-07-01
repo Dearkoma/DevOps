@@ -6,7 +6,7 @@ import {
   fetchAvailability, fetchK8sStatus, reconnectK8s,
   deleteInstance, restartInstance, stopInstance, startInstance,
   fetchK8sDeployments, getK8sDeployment, deleteK8sDeployment,
-  getAccessInfo, exposeToExternal, getInstanceLogs, getInstanceContainers,
+  getAccessInfo, exposeToExternal, stopForward, getInstanceLogs, getInstanceContainers,
   fetchDockerContainers
 } from '../api'
 
@@ -39,6 +39,7 @@ export default function InstanceList() {
   const [accessInfo, setAccessInfo] = useState(null)
   const [accessLoading, setAccessLoading] = useState(false)
   const [exposingId, setExposingId] = useState(null)
+  const [stopForwardId, setStopForwardId] = useState(null)
 
   // 日志查看
   const [logsData, setLogsData] = useState(null)       // 当前实例的日志数据
@@ -251,22 +252,33 @@ export default function InstanceList() {
     setActiveLogRole(null)
   }
 
-  // 一键部署到外部
+  // 一键转发
   const handleExpose = async (id) => {
     setExposingId(id)
     try {
       const r = await exposeToExternal(id)
-      alert(r?.success ? (r?.message || '暴露成功') : (r?.error || '操作失败'))
+      alert(r?.success ? (r?.message || '转发成功') : (r?.error || '操作失败'))
       if (r?.success) loadAll()
-    } catch (e) { alert('外部部署失败: ' + e.message) }
+    } catch (e) { alert('转发失败: ' + e.message) }
     finally { setExposingId(null) }
+  }
+
+  // 停止转发
+  const handleStopForward = async (id) => {
+    setStopForwardId(id)
+    try {
+      const r = await stopForward(id)
+      alert(r?.success ? (r?.message || '已停止') : (r?.error || '操作失败'))
+      if (r?.success) loadAll()
+    } catch (e) { alert('停止转发失败: ' + e.message) }
+    finally { setStopForwardId(null) }
   }
 
   if (loading && !dockerStatus && !k8sStatus) return <div className="empty-state"><div className="spinner" /></div>
 
   const shared = { deleteTarget, setDeleteTarget, handleDeleteInstance, restartTarget, setRestartTarget, handleRestartInstance, stopTarget, setStopTarget, handleStopInstance, startTarget, setStartTarget, handleStartInstance, canManage, loadAll,
-    expandedId, accessInfo, accessLoading, exposingId,
-    onToggleRow: handleToggleRow, onExpose: handleExpose,
+    expandedId, accessInfo, accessLoading, exposingId, stopForwardId,
+    onToggleRow: handleToggleRow, onExpose: handleExpose, onStopForward: handleStopForward,
     logsData, logsLoading, showLogsId, onViewLogs: handleViewLogs, onSaveLogs: handleSaveLogs, onCloseLogs: handleCloseLogs,
     containersData, activeLogRole }
 
@@ -615,7 +627,7 @@ function DockerContainerTable({ containers }) {
   )
 }
 
-function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole }) {
+function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, expandedId, accessInfo, accessLoading, exposingId, stopForwardId, onToggleRow, onExpose, onStopForward, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole }) {
   if (instances.length === 0) return (
     <div className="card"><div className="empty-state"><div className="icon">📦</div><p>暂无服务实例</p><p style={{ fontSize: 12 }}>构建并部署后，服务实例将自动注册</p></div></div>
   )
@@ -704,9 +716,9 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                             {/* 外部访问状态 */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>
-                                {accessInfo.externalExposed ? '🌐' : '🔒'} 外部访问：
+                                {accessInfo.forwarded ? '🌐' : '🔒'} 外部访问：
                               </span>
-                              {accessInfo.externalExposed ? (
+                              {accessInfo.forwarded ? (
                                 <>
                                   <code style={{
                                     background: '#dcfce7', padding: '4px 10px', borderRadius: 6,
@@ -724,17 +736,25 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                                     onClick={() => { navigator.clipboard.writeText(accessInfo.externalUrl); alert('已复制外部链接') }}>
                                     📋 复制
                                   </button>
+                                  <button
+                                    className="btn btn-outline btn-sm"
+                                    style={{ fontSize: 11, padding: '2px 8px', color: '#dc2626', borderColor: '#fca5a5' }}
+                                    onClick={(e) => { e.stopPropagation(); onStopForward(inst.id) }}
+                                    disabled={stopForwardId === inst.id}
+                                  >
+                                    {stopForwardId === inst.id ? '⏳ 停止中...' : '⏹ 停止转发'}
+                                  </button>
                                 </>
                               ) : (
                                 <>
-                                  <span style={{ fontSize: 12, color: '#9ca3af' }}>{accessInfo.externalLabel || '未暴露'}</span>
+                                  <span style={{ fontSize: 12, color: '#9ca3af' }}>{accessInfo.externalLabel || '未转发'}</span>
                                   <button
                                     className="btn btn-primary btn-sm"
                                     style={{ fontSize: 11, padding: '3px 10px', marginLeft: 4 }}
                                     onClick={(e) => { e.stopPropagation(); onExpose(inst.id) }}
                                     disabled={exposingId === inst.id}
                                   >
-                                    {exposingId === inst.id ? '⏳ 部署中...' : '🚀 一键部署到外部'}
+                                    {exposingId === inst.id ? '⏳ 转发中...' : '🚀 一键转发'}
                                   </button>
                                 </>
                               )}

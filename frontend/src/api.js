@@ -166,6 +166,7 @@ export const startInstance = (id) => request(`/instances/${id}/start`, { method:
 export const deleteInstance = (id) => request(`/instances/${id}`, { method: 'DELETE' })
 export const getAccessInfo = (id) => request(`/instances/${id}/access-info`)
 export const exposeToExternal = (id) => request(`/instances/${id}/expose`, { method: 'POST' })
+export const stopForward = (id) => request(`/instances/${id}/stop-forward`, { method: 'POST' })
 export const getInstanceLogs = (id, tail = 200, container = null) => {
   let url = `/instances/${id}/logs?tail=${tail}`
   if (container) url += `&container=${encodeURIComponent(container)}`

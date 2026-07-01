@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PreDestroy;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
@@ -15,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -27,6 +30,30 @@ public class InstanceMonitorService {
 
     @Value("${devops.pipeline.docker.command:docker}")
     private String dockerCommand;
+
+    /** 跟踪 K8s 端口转发进程：instanceId → Process */
+    private final Map<Long, Process> portForwardProcesses = new ConcurrentHashMap<>();
+    /** 跟踪 K8s 端口转发使用的本地端口：instanceId → localPort */
+    private final Map<Long, Integer> portForwardPorts = new ConcurrentHashMap<>();
+
+    /** 应用关闭时清理所有端口转发进程 */
+    @PreDestroy
+    public void cleanupAllPortForwards() {
+        log.info("清理所有端口转发进程，共 {} 个", portForwardProcesses.size());
+        for (Map.Entry<Long, Process> entry : portForwardProcesses.entrySet()) {
+            try {
+                Process p = entry.getValue();
+                if (p != null && p.isAlive()) {
+                    p.destroyForcibly();
+                    log.info("已停止端口转发: instanceId={}", entry.getKey());
+                }
+            } catch (Exception e) {
+                log.warn("停止端口转发失败: instanceId={}", entry.getKey(), e);
+            }
+        }
+        portForwardProcesses.clear();
+        portForwardPorts.clear();
+    }
 
     public List<ServiceInstance> getInstancesByProject(Long projectId) {
         return instanceRepository.findByProjectId(projectId);
@@ -570,55 +597,28 @@ public class InstanceMonitorService {
         info.put("internalUrl", internalUrl);
         info.put("internalLabel", "集群内部访问");
 
-        // 检查当前 Service 状态（是否已有 NodePort）
-        String cmd = String.format("kubectl get svc %s -n %s -o json 2>&1", svcName, ns);
-        ProcessResult r = runCommand(cmd);
-
-        if (r.success && !r.output.contains("NotFound") && !r.output.contains("Error")) {
-            try {
-                // 简单解析 type 和 nodePort
-                if (r.output.contains("\"NodePort\"") || r.output.contains("\"LoadBalancer\"")) {
-                    // 已暴露到外部
-                    info.put("externalExposed", true);
-
-                    // 尝试获取 nodePort
-                    int nodePort = extractNodePort(r.output);
-                    if (nodePort > 0) {
-                        String externalUrl = String.format("http://localhost:%d", nodePort);
-                        info.put("externalUrl", externalUrl);
-                        info.put("externalPort", nodePort);
-                    info.put("externalLabel", "已暴露 — NodePort " + nodePort + "（K8s 自动分配）");
-                    }
-                } else {
-                    info.put("externalExposed", false);
-                    info.put("externalLabel", "未暴露（仅集群内部可访问）");
-                }
-            } catch (Exception e) {
-                info.put("externalExposed", false);
-                info.put("externalLabel", "状态获取失败");
+        // 检查是否有活跃的端口转发
+        Process existingProcess = portForwardProcesses.get(inst.getId());
+        if (existingProcess != null && existingProcess.isAlive()) {
+            Integer fwdPort = portForwardPorts.get(inst.getId());
+            if (fwdPort != null) {
+                info.put("forwarded", true);
+                info.put("externalUrl", String.format("http://localhost:%d", fwdPort));
+                info.put("externalPort", fwdPort);
+                info.put("externalLabel", "已转发 — 本地端口 " + fwdPort + "（kubectl port-forward）");
+                return;
             }
-        } else {
-            info.put("externalExposed", false);
-            info.put("externalLabel", "Service 未找到");
         }
+        // 端口转发进程已死，清理残留状态
+        if (existingProcess != null) {
+            portForwardProcesses.remove(inst.getId());
+            portForwardPorts.remove(inst.getId());
+        }
+
+        info.put("forwarded", false);
+        info.put("externalLabel", "未转发（仅集群内部可访问，点击「一键转发」建立本地隧道）");
     }
 
-    private int extractNodePort(String jsonOutput) {
-        // 从 kubectl 输出中提取 nodePort 数字
-        int idx = jsonOutput.indexOf("\"nodePort\"");
-        if (idx < 0) return -1;
-        // nodePort 后跟 : 一个数字
-        int colon = jsonOutput.indexOf(":", idx);
-        if (colon < 0) return -1;
-        String sub = jsonOutput.substring(colon + 1).trim();
-        // 跳过空格和引号
-        StringBuilder num = new StringBuilder();
-        for (char c : sub.toCharArray()) {
-            if (Character.isDigit(c)) num.append(c);
-            else if (num.length() > 0) break;
-        }
-        try { return Integer.parseInt(num.toString()); } catch (NumberFormatException e) { return -1; }
-    }
 
     private void buildDockerAccessInfo(ServiceInstance inst, Map<String, Object> info) {
         String containerId = resolveDockerContainerId(inst);
@@ -627,8 +627,8 @@ public class InstanceMonitorService {
         if (containerId == null) {
             // 容器未运行，但镜像已构建
             info.put("internalUrl", "容器未运行（镜像: " + (inst.getImageName() != null ? inst.getImageName() : "未知") + "）");
-            info.put("internalLabel", "点击「一键部署到外部」可自动启动容器并分配端口");
-            info.put("externalExposed", false);
+            info.put("internalLabel", "点击「一键转发」可自动启动容器并分配端口");
+            info.put("forwarded", false);
             info.put("externalLabel", "未暴露 — 点击下方按钮自动启动并分配端口");
             return;
         }
@@ -647,7 +647,7 @@ public class InstanceMonitorService {
                     String mappedPort = line.substring(line.lastIndexOf(":") + 1).trim();
                     try {
                         int extPort = Integer.parseInt(mappedPort);
-                        info.put("externalExposed", true);
+                        info.put("forwarded", true);
                         info.put("externalUrl", String.format("http://localhost:%d", extPort));
                         info.put("externalPort", extPort);
                         info.put("externalLabel", "已映射到宿主机端口（系统自动分配）");
@@ -656,13 +656,13 @@ public class InstanceMonitorService {
                 }
             }
         }
-        info.put("externalExposed", false);
-        info.put("externalLabel", "未映射端口 — 点击「一键部署到外部」系统自动分配端口");
+        info.put("forwarded", false);
+        info.put("externalLabel", "未映射端口 — 点击「一键转发」系统自动分配端口");
     }
 
     /**
-     * 一键部署到外部（暴露服务为外部可访问）
-     * - K8s: 将 ClusterIP Service 改为 NodePort 类型，K8s 自动分配端口
+     * 一键转发（建立本地隧道访问 K8s 服务）
+     * - K8s: kubectl port-forward 建立本地隧道，不修改 Service 配置
      * - Docker: 系统自动分配空闲端口，停止旧容器并带 -p 端口映射重新启动
      */
     public Map<String, Object> exposeToExternal(Long id) {
@@ -678,6 +678,27 @@ public class InstanceMonitorService {
         } catch (Exception e) {
             log.error("外部部署失败 [{}]: {}", inst.getInstanceName(), e.getMessage());
             return Map.of("success", false, "error", "外部部署失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 停止指定实例的端口转发
+     * @return Map: success, message
+     */
+    public Map<String, Object> stopForward(Long id) {
+        Process p = portForwardProcesses.remove(id);
+        Integer port = portForwardPorts.remove(id);
+        if (p == null || !p.isAlive()) {
+            return Map.of("success", true, "message", "没有活跃的端口转发（可能已自动断开）");
+        }
+        try {
+            p.destroyForcibly();
+            log.info("已停止端口转发: instanceId={}, port={}", id, port);
+            return Map.of("success", true, "message",
+                    "端口转发已停止" + (port != null ? "（端口 " + port + " 已释放）" : ""));
+        } catch (Exception e) {
+            log.warn("停止端口转发失败: instanceId={}", id, e);
+            return Map.of("success", false, "error", "停止端口转发失败: " + e.getMessage());
         }
     }
 
@@ -938,58 +959,77 @@ public class InstanceMonitorService {
     private Map<String, Object> exposeK8sToExternal(ServiceInstance inst) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
         String svcName = resolveK8sServiceName(inst);
+        int svcPort = inst.getPort() != null ? inst.getPort() : 8080;
 
-        // 先检查 Service 是否存在
+        // 检查是否已有活跃的端口转发
+        Process existingProcess = portForwardProcesses.get(inst.getId());
+        if (existingProcess != null && existingProcess.isAlive()) {
+            Integer fwdPort = portForwardPorts.get(inst.getId());
+            if (fwdPort != null) {
+                return Map.of("success", true, "alreadyForwarded", true,
+                        "message", "端口转发已建立（本地端口 " + fwdPort + "）",
+                        "externalUrl", String.format("http://localhost:%d", fwdPort),
+                        "externalPort", fwdPort);
+            }
+        }
+        // 清理死进程
+        if (existingProcess != null) {
+            portForwardProcesses.remove(inst.getId());
+            portForwardPorts.remove(inst.getId());
+        }
+
+        // 检查 Service 是否存在
         ProcessResult existsR = kubectl("get", "svc", svcName, "-n", ns, "-o", "name");
         if (!existsR.success || existsR.output.contains("not found") || existsR.output.contains("NotFound")) {
             return Map.of("success", false, "error",
                     "K8s Service \"" + svcName + "\" 不存在于命名空间 \"" + ns + "\"，请确认部署已完成");
         }
 
-        // 检查是否已经是 NodePort（用 -o jsonpath 直接取 .spec.type）
-        ProcessResult check = kubectl("get", "svc", svcName, "-n", ns, "-o", "jsonpath={.spec.type}");
-        if (check.success && "NodePort".equals(check.output.trim())) {
-            ProcessResult portR = kubectl("get", "svc", svcName, "-n", ns, "-o", "jsonpath={.spec.ports[0].nodePort}");
-            int nodePort = -1;
-            try { nodePort = Integer.parseInt(portR.output.trim()); }
-            catch (NumberFormatException e) { /* ignore */ }
-            return Map.of("success", true, "alreadyExposed", true,
-                    "message", "服务已暴露到外部（K8s 自动分配端口 " + nodePort + "）",
-                    "externalUrl", String.format("http://localhost:%d", nodePort),
-                    "nodePort", nodePort);
+        // 查找空闲本地端口
+        int freePort = findFreePort(30000, 32767);
+        if (freePort == -1) {
+            return Map.of("success", false, "error", "系统无法找到可用的本地端口（30000-32767 范围均已占用）");
         }
 
-        // 将 ClusterIP 改为 NodePort
-        //   写 JSON patch 到临时文件，用 --patch-file 传递，彻底避免命令行引号问题
-        java.nio.file.Path patchFile = null;
+        // 启动 kubectl port-forward（后台进程）
         try {
-            patchFile = java.nio.file.Files.createTempFile("k8s-patch-", ".json");
-            java.nio.file.Files.writeString(patchFile, "{\"spec\":{\"type\":\"NodePort\"}}");
-            ProcessResult patchR = kubectl("patch", "svc", svcName, "-n", ns,
-                    "--type", "merge", "--patch-file", patchFile.toString());
-            if (!patchR.success) {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "kubectl", "port-forward",
+                    "svc/" + svcName, "-n", ns,
+                    freePort + ":" + svcPort
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            // 等待 1.5 秒让隧道建立
+            Thread.sleep(1500);
+
+            if (!process.isAlive()) {
+                // 进程已退出，读取错误信息
+                String errOut = new String(process.getInputStream().readAllBytes());
                 return Map.of("success", false, "error",
-                        "修改 Service 类型失败: " + patchR.output, "svcName", svcName);
+                        "端口转发进程启动后立即退出: " + errOut.trim());
             }
+
+            // 记录转发进程和端口
+            portForwardProcesses.put(inst.getId(), process);
+            portForwardPorts.put(inst.getId(), freePort);
+
+            log.info("K8s 端口转发已建立: svc/{}.{}:{} → localhost:{}  [instanceId={}]",
+                    svcName, ns, svcPort, freePort, inst.getId());
+
+            return Map.of("success", true, "alreadyForwarded", false,
+                    "message", "本地隧道已建立！转发端口 " + freePort + "，可通过 localhost:" + freePort + " 访问",
+                    "externalUrl", String.format("http://localhost:%d", freePort),
+                    "externalPort", freePort);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Map.of("success", false, "error", "端口转发被中断");
         } catch (Exception e) {
-            return Map.of("success", false, "error",
-                    "写入 patch 文件失败: " + e.getMessage(), "svcName", svcName);
-        } finally {
-            if (patchFile != null) {
-                try { java.nio.file.Files.deleteIfExists(patchFile); } catch (Exception ignored) {}
-            }
+            log.error("启动端口转发失败 [{}]: {}", inst.getInstanceName(), e.getMessage());
+            return Map.of("success", false, "error", "启动端口转发失败: " + e.getMessage());
         }
-
-        // 获取分配的 NodePort
-        ProcessResult portR = kubectl("get", "svc", svcName, "-n", ns, "-o", "jsonpath={.spec.ports[0].nodePort}");
-        int nodePort = -1;
-        try { nodePort = Integer.parseInt(portR.output.trim()); }
-        catch (NumberFormatException e) { /* ignore */ }
-
-        return Map.of("success", true, "alreadyExposed", false,
-                "message", "服务已暴露到外部，K8s 自动分配端口 " + nodePort + "，可通过 localhost:" + nodePort + " 访问",
-                "externalUrl", String.format("http://localhost:%d", nodePort),
-                "nodePort", nodePort);
     }
 
     private Map<String, Object> exposeDockerToExternal(ServiceInstance inst) {
@@ -1254,6 +1294,8 @@ public class InstanceMonitorService {
         if (depName == null || depName.isEmpty()) {
             return Map.of("success", false, "error", "无法解析 Deployment 名称");
         }
+        // 停止端口转发（如果有）
+        stopForward(inst.getId());
         ProcessResult r = kubectl("scale", "deployment/" + depName, "--replicas=0", "-n", ns);
         if (r.success) {
             inst.setStatus("STOPPED");
@@ -1274,6 +1316,11 @@ public class InstanceMonitorService {
 
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         try {
+            // 先停止端口转发（如果有）
+            if ("K8S".equals(inst.getDeployType())) {
+                stopForward(id);
+            }
+
             String deployType = inst.getDeployType();
             if ("K8S".equals(deployType)) {
                 result = deleteK8sResources(inst);

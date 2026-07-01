@@ -111,11 +111,20 @@ public class InstanceController {
     }
 
     /**
-     * 一键部署到外部（K8s → NodePort，Docker → 端口映射检查）
+     * 一键转发（K8s → kubectl port-forward 本地隧道，Docker → 端口映射）
      */
     @PostMapping("/{id}/expose")
     public ResponseEntity<Map<String, Object>> exposeToExternal(@PathVariable Long id) {
         Map<String, Object> result = monitorService.exposeToExternal(id);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 停止端口转发（K8s kubectl port-forward）
+     */
+    @PostMapping("/{id}/stop-forward")
+    public ResponseEntity<Map<String, Object>> stopForward(@PathVariable Long id) {
+        Map<String, Object> result = monitorService.stopForward(id);
         return ResponseEntity.ok(result);
     }
 
