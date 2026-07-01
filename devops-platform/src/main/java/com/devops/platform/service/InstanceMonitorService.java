@@ -229,8 +229,7 @@ public class InstanceMonitorService {
             inst.setMemoryUsage(memMB);
         }
 
-        // 采集成功 → 更新 Pod 名（完整名）、标为运行中
-        inst.setK8sPodName(podName);
+        // 采集成功 → 标为运行中（不覆盖 k8sPodName，保持为 projectCode/Deployment 名）
         inst.setStatus("RUNNING");
         inst.setHealthStatus("HEALTHY");
         inst.setLastHeartbeat(LocalDateTime.now());
@@ -243,15 +242,13 @@ public class InstanceMonitorService {
      * 回退：从 Pod 名中去掉最后两段 hash（<depName>-<rsHash>-<podHash>）
      */
     private String resolveK8sDeploymentName(ServiceInstance inst) {
-        // K8s Deployment 名 = projectCode（存在 k8sPodName 字段）
-        // 优先用它，因为实例名现在带构建编号不再等于 Deployment 名
+        // k8sPodName 存的是 projectCode = Deployment 名
         if (inst.getK8sPodName() != null && !inst.getK8sPodName().isBlank()) {
             return inst.getK8sPodName();
         }
-        // 兜底：从实例名推导，兼容旧格式
+        // 兜底：从实例名推导，兼容旧格式 xxx-k8s / 新格式 xxx-k8s-3
         String depName = inst.getInstanceName();
         if (depName != null) {
-            // 去掉 -k8s-<数字> 或 -k8s 或 -docker-<数字> 或 -docker 后缀
             depName = depName.replaceAll("-(k8s|docker)(-\\d+)?$", "");
         }
         return (depName != null && !depName.isBlank()) ? depName : null;
@@ -286,10 +283,10 @@ public class InstanceMonitorService {
         }
 
         // 兜底：用 Deployment 名前缀匹配（Pod 重启后 hash 会变，旧 Pod 名匹配不到）
-        // 从 instanceName 推导 Deployment 名：去掉 -k8s/-docker 后缀 + "-"
+        // 从 instanceName 推导 Deployment 名：去掉 -k8s-<数字> / -k8s / -docker-<数字> / -docker
         String depName = instanceName;
         if (depName != null) {
-            depName = depName.replaceAll("-(k8s|docker)$", "");
+            depName = depName.replaceAll("-(k8s|docker)(-\\d+)?$", "");
             if (!depName.isEmpty() && !depName.equals(searchTerm)) {
                 for (String line : r.output.split("\\R")) {
                     String name = line.trim();
@@ -1070,11 +1067,7 @@ public class InstanceMonitorService {
             result.put("logs", logs);
             result.put("podName", podName);
             result.put("namespace", ns);
-            // 顺便更新存储的 Pod 名
-            if (!podName.equals(inst.getK8sPodName())) {
-                inst.setK8sPodName(podName);
-                instanceRepository.save(inst);
-            }
+            // 不再覆盖 k8sPodName，保持为 projectCode（Deployment 名）
         } else {
             // Pod 可能已停止，尝试获取上一次运行的日志
             java.util.List<String> prevArgs = new java.util.ArrayList<>(java.util.List.of("logs", podName));
