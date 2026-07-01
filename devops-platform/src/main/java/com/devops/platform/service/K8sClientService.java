@@ -24,7 +24,7 @@ import java.util.*;
 
 /**
  * Kubernetes 集群连接服务
- * 支持通过 kubeconfig 文件连接 Rancher / 原生 K8s 集群
+ * 支持通过 kubeconfig 文件连接 Docker Desktop / Rancher Desktop / 原生 K8s 集群
  */
 @Slf4j
 @Service
@@ -69,7 +69,8 @@ public class K8sClientService {
         try {
             File kubeConfigFile = resolveKubeconfig();
             if (kubeConfigFile == null || !kubeConfigFile.exists()) {
-                connectionError = "未找到 kubeconfig 文件。请从 Rancher 下载 kubeconfig 并放置到 ~/.kube/config";
+                connectionError = "未找到 kubeconfig 文件，请确认已在 Docker Desktop / Rancher Desktop 中启用了 Kubernetes";
+
                 log.warn(connectionError);
                 return;
             }
@@ -190,13 +191,15 @@ public class K8sClientService {
         String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
 
         if (msg.contains("java.net.ConnectException") || msg.contains("Connection refused")) {
-            return "无法连接 Kubernetes API Server，请确认 Rancher Desktop 正在运行";
+            return "无法连接 Kubernetes API Server，请确认 Docker Desktop / Rancher Desktop 正在运行且 Kubernetes 已启用";
+
         }
         if (msg.contains("SSLHandshakeException") || msg.contains("PKIX")) {
             return "SSL 证书验证失败，kubeconfig 中的证书可能已过期";
         }
         if (msg.contains("Unauthorized") || msg.contains("401") || msg.contains("403")) {
-            return "认证失败，kubeconfig 凭据可能已过期，请重启 Rancher Desktop 获取新凭据";
+            return "认证失败，kubeconfig 凭据可能已过期，请重启 Docker Desktop / Rancher Desktop 刷新凭据";
+
         }
         if (msg.contains("SocketTimeoutException") || msg.contains("connect timed out")) {
             return "连接超时，请确认 Rancher Desktop 正在运行且 K8s 集群已启动";
