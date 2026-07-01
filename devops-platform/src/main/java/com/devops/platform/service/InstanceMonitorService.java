@@ -147,11 +147,20 @@ public class InstanceMonitorService {
 
         // 先解析实际运行的 Pod 名（DB 存的可能是 Deployment 名而非完整 Pod 名）
         String podName = resolveK8sPodName(ns, inst.getK8sPodName(), inst.getInstanceName(), inst.getProjectName());
+
+        // 无论 kubectl top 是否可用，只要 Pod 在运行就更新心跳（防止状态跳 UNKNOWN）
+        if (podName != null && !podName.isEmpty()) {
+            inst.setStatus("RUNNING");
+            inst.setHealthStatus("HEALTHY");
+            inst.setLastHeartbeat(LocalDateTime.now());
+            instanceRepository.save(inst);
+        }
+
         if (podName == null || podName.isEmpty()) return;
 
         String cmd = String.format("kubectl top pod %s -n %s --no-headers", podName, ns);
         ProcessResult r = runCommand(cmd);
-        if (!r.success || r.output.isBlank()) return;
+        if (!r.success || r.output.isBlank()) return;  // top 失败不影响状态，心跳已更新
 
         // 输出格式: "pod-name   15m   128Mi"
         String[] parts = r.output.trim().split("\\s+");
@@ -496,12 +505,14 @@ public class InstanceMonitorService {
 
     /** 附加管理员凭据信息到访问信息中 */
     private void addAdminCredentials(ServiceInstance inst, Map<String, Object> info) {
-        boolean hasAdmin = inst.getAdminUsername() != null && !inst.getAdminUsername().isBlank();
-        if (hasAdmin) {
-            info.put("hasAdminCredentials", true);
-            info.put("adminUsername", inst.getAdminUsername());
-            info.put("adminPassword", inst.getAdminPassword() != null ? inst.getAdminPassword() : "admin123");
-        }
+        // adminUsername 可能为 null（旧实例），统一使用默认值 admin/admin123
+        String username = (inst.getAdminUsername() != null && !inst.getAdminUsername().isBlank())
+                ? inst.getAdminUsername() : "admin";
+        String password = (inst.getAdminPassword() != null && !inst.getAdminPassword().isBlank())
+                ? inst.getAdminPassword() : "admin123";
+        info.put("hasAdminCredentials", true);
+        info.put("adminUsername", username);
+        info.put("adminPassword", password);
         if (inst.getDbName() != null && !inst.getDbName().isBlank()) {
             info.put("dbName", inst.getDbName());
         }
