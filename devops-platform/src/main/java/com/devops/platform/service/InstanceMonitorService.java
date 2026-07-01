@@ -1399,8 +1399,7 @@ public class InstanceMonitorService {
     }
 
     /**
-     * 获取本机所有 Docker 容器列表（docker ps -a）
-     * 排除 K8s 管理的容器（名称以 k8s_ 开头）
+     * 获取本机所有 Docker 容器列表（docker ps -a），含 K8s 管理的容器
      */
     public List<Map<String, Object>> getDockerContainers() {
         try {
@@ -1431,7 +1430,6 @@ public class InstanceMonitorService {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> raw = mapper.readValue(trimmed, Map.class);
                 String name = String.valueOf(raw.getOrDefault("Names", ""));
-                if (name.startsWith("k8s_")) continue;
                 Map<String, Object> info = new LinkedHashMap<>();
                 info.put("id", raw.getOrDefault("ID", ""));
                 info.put("name", name);
@@ -1457,7 +1455,6 @@ public class InstanceMonitorService {
             String[] parts = trimmed.split("\\t", -1);
             if (parts.length < 8) continue;
             String containerName = parts[1].trim();
-            if (containerName.startsWith("k8s_")) continue;
             Map<String, Object> info = new LinkedHashMap<>();
             info.put("id", parts[0].trim());
             info.put("name", containerName);

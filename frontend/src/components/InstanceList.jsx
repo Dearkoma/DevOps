@@ -562,7 +562,7 @@ function PodList({ pods, count }) {
 
 function DockerContainerTable({ containers }) {
   if (!containers || containers.length === 0) return (
-    <div className="card"><div className="empty-state"><div className="icon">📦</div><p>无 Docker 容器</p><p style={{ fontSize: 12 }}>当前没有运行中的 Docker 容器（已排除 K8s 管理的容器）</p></div></div>
+    <div className="card"><div className="empty-state"><div className="icon">📦</div><p>无 Docker 容器</p><p style={{ fontSize: 12 }}>当前机器上没有任何 Docker 容器</p></div></div>
   )
   return (
     <div className="card" style={{ padding: 0 }}>
@@ -572,6 +572,7 @@ function DockerContainerTable({ containers }) {
             <tr>
               <th>容器名称</th>
               <th>镜像</th>
+              <th>管理</th>
               <th>状态</th>
               <th>运行信息</th>
               <th>端口</th>
@@ -580,10 +581,18 @@ function DockerContainerTable({ containers }) {
           <tbody>
             {containers.map((c, i) => {
               const isRunning = c.state === 'running'
+              const isK8s = c.name && c.name.startsWith('k8s_')
               return (
                 <tr key={c.id || i}>
-                  <td style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 13 }}>{c.name}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#6b7280' }}>{c.image}</td>
+                  <td style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 12, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>{c.name}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 11, color: '#6b7280', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.image}>{c.image}</td>
+                  <td>
+                    {isK8s ? (
+                      <span className="badge badge-admin" style={{ fontSize: 10 }}>☸️ K8s</span>
+                    ) : (
+                      <span className="badge badge-developer" style={{ fontSize: 10 }}>🐳 自管</span>
+                    )}
+                  </td>
                   <td>
                     <span className="badge" style={{
                       background: isRunning ? '#dcfce7' : '#fef2f2',
@@ -595,7 +604,7 @@ function DockerContainerTable({ containers }) {
                     </span>
                   </td>
                   <td style={{ fontSize: 12, color: '#6b7280' }}>{c.status}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 11, color: '#374151', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.ports}>{c.ports || '-'}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 11, color: '#374151', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.ports}>{c.ports || '-'}</td>
                 </tr>
               )
             })}
