@@ -838,9 +838,25 @@ public class BuildService {
             if (dbName != null && !dbName.isBlank() && !"H2".equalsIgnoreCase(project.getDbType())) {
                 try {
                     String original = Files.readString(deployPath);
-                    String dbHost = project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";
+                    // dbHost 解析优先级：
+                    // 1) 环境变量 K8S_DB_HOST (一次性测试)
+                    // 2) project.dbHost 非空 → 用项目的
+                    // 3) 默认 host.docker.internal (K3s 内置 DNS → 192.168.127.254 → 宿主机 MySQL)
+                    // 4) 用户部署的镜像本身已带 hostNetwork: true → 也能用 127.0.0.1
+                    String envK8sDbHost = System.getenv("K8S_DB_HOST");
+                    String dbHost;
+                    if (envK8sDbHost != null && !envK8sDbHost.isBlank()) {
+                        dbHost = envK8sDbHost;
+                    } else if (project.getDbHost() != null && !project.getDbHost().isBlank()) {
+                        dbHost = project.getDbHost();
+                    } else {
+                        // 默认 host.docker.internal（K3s 容器内可解析为宿主机 IP）
+                        // 这是 D 平台+K3s+Rancher Desktop 唯一能稳定访问宿主机 MySQL 的方式
+                        dbHost = "host.docker.internal";
+                    }
                     int dbPort = project.getDbPort() != null ? project.getDbPort() : 3306;
-                    String dbUser = project.getDbUsername() != null ? project.getDbUsername() : "root";
+                    String dbUser = project.getDbUsername() != null && !project.getDbUsername().isBlank()
+                            ? project.getDbUsername() : "root";
                     String dbPass = project.getDbPassword() != null ? project.getDbPassword() : "";
                     String jdbcUrl = "jdbc:mysql://" + dbHost + ":" + dbPort + "/" + dbName
                             + "?useUnicode=true&characterEncoding=utf-8&useSSL=false"
