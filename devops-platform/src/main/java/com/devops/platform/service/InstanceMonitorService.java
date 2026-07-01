@@ -249,6 +249,27 @@ public class InstanceMonitorService {
             if (!name.isEmpty() && name.contains(searchTerm)) return name;
         }
 
+        // 兜底：用 Deployment 名前缀匹配（Pod 重启后 hash 会变，旧 Pod 名匹配不到）
+        // 从 instanceName 推导 Deployment 名：去掉 -k8s/-docker 后缀 + "-"
+        String depName = instanceName;
+        if (depName != null) {
+            depName = depName.replaceAll("-(k8s|docker)$", "");
+            if (!depName.isEmpty() && !depName.equals(searchTerm)) {
+                for (String line : r.output.split("\\R")) {
+                    String name = line.trim();
+                    if (!name.isEmpty() && name.startsWith(depName + "-")) return name;
+                }
+            }
+        }
+
+        // 最后用 projectName 前缀匹配
+        if (projectName != null && !projectName.isEmpty() && !projectName.equals(searchTerm)) {
+            for (String line : r.output.split("\\R")) {
+                String name = line.trim();
+                if (!name.isEmpty() && name.startsWith(projectName + "-")) return name;
+            }
+        }
+
         return null;
     }
 
