@@ -91,13 +91,26 @@ public class DatabaseProvisioningService {
      * @return CreateResult，success=false 为冲突
      */
     public CreateResult createDatabase(String dbName, Long currentProjectId,
-                                        com.devops.platform.repository.BuildRepository buildRepository) {
+                                        com.devops.platform.repository.BuildRepository buildRepository,
+                                        boolean freshIsolated) {
         if (dbName == null || dbName.isBlank()) {
             log.warn("dbName 为空，跳过数据库创建");
             return new CreateResult(false, "", false, null, null);
         }
 
         String safeName = sanitizeDbName(dbName);
+
+        // 0) 如果是"独立新部署"模式：库已存在就删除重建，确保新实例是 0 条数据
+        if (freshIsolated && databaseExists(safeName)) {
+            try (Connection conn = dataSource.getConnection();
+                 Statement stmt = conn.createStatement()) {
+                stmt.executeUpdate("DROP DATABASE `" + safeName + "`");
+                log.info("独立部署模式：已删除旧库 '{}'，准备重建", safeName);
+            } catch (Exception e) {
+                log.error("删除旧库 '{}' 失败: {}", safeName, e.getMessage());
+                return new CreateResult(false, safeName, true, null, null);
+            }
+        }
 
         // 1) 检查 MySQL 中是否已存在
         boolean exists = databaseExists(safeName);
@@ -134,6 +147,12 @@ public class DatabaseProvisioningService {
             log.error("创建数据库 '{}' 失败: {}", safeName, e.getMessage());
             return new CreateResult(false, safeName, exists, null, null);
         }
+    }
+
+    /** 兼容旧调用（无冲突检测，建议迁移到 {@link #createDatabase(String, Long, com.devops.platform.repository.BuildRepository, boolean)}）。 */
+    public CreateResult createDatabase(String dbName, Long currentProjectId,
+                                        com.devops.platform.repository.BuildRepository buildRepository) {
+        return createDatabase(dbName, currentProjectId, buildRepository, false);
     }
 
     /**

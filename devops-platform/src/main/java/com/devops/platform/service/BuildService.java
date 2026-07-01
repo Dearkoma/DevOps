@@ -174,8 +174,10 @@ public class BuildService {
         // 仅显式声明 H2 时才跳过数据库供应
         boolean useH2 = "H2".equalsIgnoreCase(project.getDbType());
         if (!useH2) {
+            // 每次构建都生成全新的独立数据库：freshIsolated=true 让已有同名库先删再建
+            // 这样 O 项目每次部署都是 0 条数据，真正做到实例隔离
             DatabaseProvisioningService.CreateResult dbResult =
-                    dbProvisioningService.createDatabase(effectiveDbName, projectId, buildRepository);
+                    dbProvisioningService.createDatabase(effectiveDbName, projectId, buildRepository, true);
             if (!dbResult.success) {
                 if (dbResult.conflictProjectId != null) {
                     throw new RuntimeException(String.format(
@@ -742,7 +744,58 @@ public class BuildService {
                 return false;
             }
         } else {
+            // deployment.yaml 已存在：在 apply 前替换/注入 SPRING_DATASOURCE_URL 强制指向本次构建的独立库
+            // 避免 O 项目自带 yaml 硬编码指向 D 平台主库
             logBuf.append("[K8S] 使用已有: ").append(deployPath.toString()).append("\n");
+            logBuf.append("[K8S] 注入本次构建的独立数据库配置...\n");
+            Build build = buildRepository.findById(buildId).orElse(null);
+            String dbName = build != null ? build.getDbName() : null;
+            if (dbName != null && !dbName.isBlank() && !"H2".equalsIgnoreCase(project.getDbType())) {
+                try {
+                    String original = Files.readString(deployPath);
+                    String dbHost = project.getDbHost() != null ? project.getDbHost() : "host.docker.internal";
+                    int dbPort = project.getDbPort() != null ? project.getDbPort() : 3306;
+                    String dbUser = project.getDbUsername() != null ? project.getDbUsername() : "root";
+                    String dbPass = project.getDbPassword() != null ? project.getDbPassword() : "";
+                    String jdbcUrl = "jdbc:mysql://" + dbHost + ":" + dbPort + "/" + dbName
+                            + "?useUnicode=true&characterEncoding=utf-8&useSSL=false"
+                            + "&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+                            + "&createDatabaseIfNotExist=true";
+
+                    String modified = original;
+
+                    // 1) 替换已有的 SPRING_DATASOURCE_URL 值（保留 yaml 里的格式和引号风格）
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_URL\\s*:\\s*\"[^\"]*\"",
+                            "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
+                    // 单引号风格
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_URL\\s*:\\s*'[^']*'",
+                            "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
+                    // 无引号风格
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_URL\\s*:\\s*[^\\s\"']+",
+                            "SPRING_DATASOURCE_URL: \"" + jdbcUrl + "\"");
+
+                    // 2) 替换用户名密码
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_USERNAME\\s*:\\s*[^\\n]+",
+                            "SPRING_DATASOURCE_USERNAME: \"" + dbUser + "\"");
+                    modified = modified.replaceAll(
+                            "SPRING_DATASOURCE_PASSWORD\\s*:\\s*[^\\n]+",
+                            "SPRING_DATASOURCE_PASSWORD: \"" + dbPass + "\"");
+
+                    if (!modified.equals(original)) {
+                        Files.writeString(deployPath, modified);
+                        logBuf.append("[K8S] 已替换 SPRING_DATASOURCE_URL 指向: ").append(jdbcUrl).append("\n");
+                    } else {
+                        logBuf.append("[K8S] 警告: 未找到 SPRING_DATASOURCE_URL，O 项目可能使用自己的 application.yml\n");
+                        logBuf.append("[K8S] Pod 启动后可能连到错误的数据库\n");
+                    }
+                } catch (IOException e) {
+                    logBuf.append("[WARN] 修改 deployment.yaml 失败: ").append(e.getMessage()).append("\n");
+                }
+            }
         }
 
         String command = "kubectl apply -f " + deployFile + " -n " + k8sNamespace;
