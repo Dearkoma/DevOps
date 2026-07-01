@@ -243,22 +243,16 @@ public class InstanceMonitorService {
      * 回退：从 Pod 名中去掉最后两段 hash（<depName>-<rsHash>-<podHash>）
      */
     private String resolveK8sDeploymentName(ServiceInstance inst) {
+        // K8s Deployment 名 = projectCode（存在 k8sPodName 字段）
+        // 优先用它，因为实例名现在带构建编号不再等于 Deployment 名
+        if (inst.getK8sPodName() != null && !inst.getK8sPodName().isBlank()) {
+            return inst.getK8sPodName();
+        }
+        // 兜底：从实例名推导，兼容旧格式
         String depName = inst.getInstanceName();
         if (depName != null) {
-            depName = depName.replaceAll("-(k8s|docker)$", "");
-        }
-        if (depName == null || depName.isBlank()) {
-            String pod = inst.getK8sPodName();
-            if (pod != null && !pod.isBlank()) {
-                String[] parts = pod.split("-");
-                if (parts.length >= 3) {
-                    StringBuilder sb = new StringBuilder(parts[0]);
-                    for (int i = 1; i < parts.length - 2; i++) sb.append("-").append(parts[i]);
-                    depName = sb.toString();
-                } else {
-                    depName = pod;
-                }
-            }
+            // 去掉 -k8s-<数字> 或 -k8s 或 -docker-<数字> 或 -docker 后缀
+            depName = depName.replaceAll("-(k8s|docker)(-\\d+)?$", "");
         }
         return (depName != null && !depName.isBlank()) ? depName : null;
     }
@@ -1578,8 +1572,12 @@ public class InstanceMonitorService {
             result.put("message", "无法解析 Deployment 名称，仅删除数据库记录");
             return result;
         }
+        // 删除 Deployment
         ProcessResult r = kubectl("delete", "deployment", depName, "-n", ns, "--ignore-not-found=true");
-        result.put("message", "K8s Deployment 已删除: " + depName);
+        // 同时删除关联的 Service（约定名 + 自适应查找）
+        String svcName = resolveK8sServiceName(inst);
+        kubectl("delete", "svc", svcName, "-n", ns, "--ignore-not-found=true");
+        result.put("message", "K8s Deployment + Service 已删除: " + depName);
         result.put("output", r.output);
         return result;
     }
