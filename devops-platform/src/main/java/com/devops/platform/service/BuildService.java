@@ -514,6 +514,27 @@ public class BuildService {
         return dockerAvailable;
     }
 
+    /**
+     * 检查本地镜像是否存在
+     * 用于跳过重复构建,避免 BuildKit gRPC 502 等瞬时错误
+     */
+    private boolean isLocalImageExists(String imageName) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(dockerCommand, "inspect", imageName);
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            boolean finished = proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            if (finished) {
+                return proc.exitValue() == 0;
+            } else {
+                proc.destroyForcibly();
+                return false;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** 检测 kubectl 是否可用（结果缓存） */
     private boolean isKubectlAvailable() {
         if (kubectlAvailable != null) return kubectlAvailable;
@@ -672,13 +693,22 @@ public class BuildService {
         String imageName = dockerRegistry.isBlank() ? project.getCode() + ":latest"
                 : dockerRegistry + "/" + project.getCode() + ":latest";
         String command = dockerCommand + " build -t " + imageName + " -f " + dockerfileRelPath + " .";
-        logBuf.append("[DOCKER] 构建镜像: ").append(imageName).append("\n");
-        logBuf.append("[INFO] 工作目录: ").append(buildContext).append("\n");
-        logBuf.append("[INFO] Dockerfile: ").append(dockerfilePath).append("\n");
-        appendLog(buildId, logBuf.toString());
-        int exitCode = runCommand(buildContext.toString(), command, logBuf, buildId);
-        if (exitCode != 0) { logBuf.append("[ERROR] Docker 构建失败\n"); return false; }
-        logBuf.append("[DOCKER] 镜像构建完成\n");
+
+        // 检查镜像是否已存在（避免 BuildKit gRPC 502 等瞬时错误强制重试）
+        // 单节点开发环境：镜像已存在且 Pod 在跑 → 跳过重建
+        if (isLocalImageExists(imageName)) {
+            logBuf.append("[DOCKER] 镜像已存在,跳过构建: ").append(imageName).append("\n");
+            logBuf.append("[HINT] 如需重新构建,请先 docker rmi ").append(imageName).append(" 或在 D 平台项目设置中开启「强制重建」\n");
+            appendLog(buildId, logBuf.toString());
+        } else {
+            logBuf.append("[DOCKER] 构建镜像: ").append(imageName).append("\n");
+            logBuf.append("[INFO] 工作目录: ").append(buildContext).append("\n");
+            logBuf.append("[INFO] Dockerfile: ").append(dockerfilePath).append("\n");
+            appendLog(buildId, logBuf.toString());
+            int exitCode = runCommand(buildContext.toString(), command, logBuf, buildId);
+            if (exitCode != 0) { logBuf.append("[ERROR] Docker 构建失败\n"); return false; }
+            logBuf.append("[DOCKER] 镜像构建完成\n");
+        }
 
         // 检查是否有前端 Dockerfile，如果有则构建前端 nginx 镜像（前后端分离部署）
         Path frontendDockerfile = projectRoot.resolve("Dockerfile.frontend");
