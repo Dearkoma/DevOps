@@ -970,6 +970,96 @@ public class BuildService {
             logBuf.append("[WARN] rollout 在 60 秒内未完成，Pod 可能仍在拉取镜像或启动中\n");
         }
         logBuf.append("[K8S] 部署完成\n");
+
+        // ==================== 部署后真实状态检查 ====================
+        // 关键: 不能用 kubectl apply 成功 + rollout 警告就认为部署成功
+        // 必须真实检查 Pod 是否就绪 (Running 且 Ready)
+        // 之前的问题: Pod Pending/CrashLoopBackOff 时仍然标记"成功"
+        logBuf.append("[K8S] 检查 Pod 真实状态...\n");
+        appendLog(buildId, logBuf.toString());
+        int deploymentNameLen = (project.getCode() != null ? project.getCode() : "devops-app").length();
+        String deploymentName = (project.getCode() != null ? project.getCode() : "devops-app");
+        // 用 -o name 列出 Pod（避免 jsonpath 数组越界）
+        String podsOutput;
+        try {
+            int rc1 = runCommand(workDir.toString(),
+                    "kubectl get pods -n " + k8sNamespace
+                            + " -l app=" + deploymentName
+                            + " -o name", logBuf, buildId);
+            // 复用刚才的 rollout 输出无法重用 runCommand 的返回字符串
+            // 直接用 ProcessBuilder 单独跑一次只读 Pod 列表
+            podsOutput = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"),
+                            "k8s-pods-list-" + System.currentTimeMillis() + ".tmp")));
+        } catch (Exception ex) {
+            podsOutput = "";
+        }
+        // 改用 ProcessBuilder 直接拿输出
+        StringBuilder podsBuf = new StringBuilder();
+        try {
+            ProcessBuilder pb = new ProcessBuilder("kubectl", "get", "pods", "-n", k8sNamespace,
+                    "-l", "app=" + deploymentName, "-o", "name");
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            try (java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(proc.getInputStream()))) {
+                String l;
+                while ((l = r.readLine()) != null) podsBuf.append(l).append("\n");
+            }
+            proc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception ex) {
+            logBuf.append("[WARN] 列出 Pod 失败: ").append(ex.getMessage()).append("\n");
+        }
+        podsOutput = podsBuf.toString();
+        int totalPods = 0;
+        int runningPods = 0;
+        if (podsOutput != null && !podsOutput.trim().isEmpty()) {
+            for (String line : podsOutput.split("\\R")) {
+                String name = line.trim();
+                if (name.isEmpty()) continue;
+                totalPods++;
+                String podName = name.startsWith("pod/") ? name.substring(4) : name;
+                String phase = "";
+                try {
+                    ProcessBuilder pb = new ProcessBuilder("kubectl", "get", "pod", podName,
+                            "-n", k8sNamespace, "-o", "jsonpath={.status.phase}");
+                    pb.redirectErrorStream(true);
+                    Process proc = pb.start();
+                    try (java.io.BufferedReader r = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(proc.getInputStream()))) {
+                        String l;
+                        while ((l = r.readLine()) != null) phase = l;
+                    }
+                    proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+                    phase = phase.trim();
+                } catch (Exception ex) {
+                    phase = "Unknown";
+                }
+                if ("Running".equals(phase)) runningPods++;
+                else {
+                    logBuf.append("[K8S] Pod ").append(podName).append(" 状态=").append(phase).append("（非 Running）\n");
+                }
+            }
+        }
+        if (totalPods == 0) {
+            logBuf.append("[ERROR] 部署后未发现任何 Pod（应用可能未正确启动）\n");
+            appendLog(buildId, logBuf.toString());
+            return false;
+        }
+        if (runningPods == 0) {
+            logBuf.append("[ERROR] 部署后所有 Pod 都不在 Running 状态（共 ").append(totalPods).append(" 个）\n");
+            logBuf.append("[HINT] 查看 Pod 状态: kubectl get pods -n ").append(k8sNamespace).append(" -l app=").append(deploymentName).append("\n");
+            logBuf.append("[HINT] 查看 Pod 日志: kubectl logs -n ").append(k8sNamespace).append(" <pod-name>\n");
+            appendLog(buildId, logBuf.toString());
+            return false;
+        }
+        if (runningPods < totalPods) {
+            logBuf.append("[ERROR] 部署后只有 ").append(runningPods).append("/").append(totalPods).append(" Pod 处于 Running 状态\n");
+            appendLog(buildId, logBuf.toString());
+            return false;
+        }
+        logBuf.append("[K8S] 所有 Pod (").append(runningPods).append("/").append(totalPods).append(") 状态正常\n");
+        appendLog(buildId, logBuf.toString());
         return true;
     }
 
