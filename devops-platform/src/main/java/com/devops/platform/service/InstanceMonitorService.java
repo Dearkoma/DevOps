@@ -1178,6 +1178,43 @@ public class InstanceMonitorService {
                     "K8s Service \"" + svcName + "\" 不存在于命名空间 \"" + ns + "\"，请确认部署已完成");
         }
 
+        // ==================== 前置检查：确保有可用 Pod（Pod 可能 Succeeded/Completed 已退出） ====================
+        // 列出 Service selector 匹配的所有 Pod，逐个检查 phase
+        // 优先选择 Running 状态的 Pod；若无任何 Running，则启动 port-forward 也无法工作
+        ProcessResult podsR = kubectl("get", "pods", "-n", ns,
+                "-l", "app=" + svcName.replace("-svc", ""), "-o", "jsonpath={range .items[*]}{.metadata.name}{\"|\"}{.status.phase}{\"\\n\"}{end}");
+        String runningPod = null;
+        String firstPod = null;
+        StringBuilder phases = new StringBuilder();
+        if (podsR.success && podsR.output != null && !podsR.output.trim().isEmpty()) {
+            for (String line : podsR.output.split("\\R")) {
+                if (line.trim().isEmpty()) continue;
+                String[] parts = line.split("\\|", 2);
+                if (parts.length < 2) continue;
+                String podName = parts[0].trim();
+                String phase = parts[1].trim();
+                if (firstPod == null) firstPod = podName;
+                phases.append(podName).append("=").append(phase).append(", ");
+                if ("Running".equals(phase) && runningPod == null) {
+                    runningPod = podName;
+                }
+            }
+        }
+        log.info("K8s Service {} 的 Pod 状态: {}", svcName, phases);
+        if (runningPod == null) {
+            // 没有 Running 状态的 Pod — 给出明确错误
+            String detail = firstPod == null
+                    ? "没有找到匹配 app=" + svcName.replace("-svc", "") + " 的 Pod"
+                    : "所有 Pod 都未运行（当前状态: " + phases.toString().replaceAll(", $", "") + "）";
+            return Map.of("success", false, "error",
+                    "无法启动端口转发: " + detail + "。"
+                            + "Pod 可能已 Succeeded/Completed（O 项目是 Job 类型/单次任务）"
+                            + "或 CrashLoopBackOff。\n"
+                            + "建议: 1) 在服务实例列表查看 Pod 实时状态; "
+                            + "2) 若 O 项目是 Spring Boot 等长驻服务，deployment.yaml 的 restartPolicy 应为 Always; "
+                            + "3) 若 Pod 已退出但 Service 还在，删除实例重建。");
+        }
+
         // 查找空闲本地端口
         int freePort = findFreePort(30000, 32767);
         if (freePort == -1) {
@@ -1201,7 +1238,8 @@ public class InstanceMonitorService {
                 // 进程已退出，读取错误信息
                 String errOut = new String(process.getInputStream().readAllBytes());
                 return Map.of("success", false, "error",
-                        "端口转发进程启动后立即退出: " + errOut.trim());
+                        "端口转发进程启动后立即退出: " + errOut.trim()
+                                + "（Pod " + runningPod + " 当前 Running，但 port-forward 仍启动失败）");
             }
 
             // 记录转发进程和端口
