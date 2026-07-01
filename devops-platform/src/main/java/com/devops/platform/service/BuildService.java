@@ -932,10 +932,12 @@ public class BuildService {
                     }
 
                     // 6) 自动添加 hostNetwork: true（K8s 容器访问宿主机 MySQL 必须）
+                    // 正确位置: spec.template.spec.containers 之前（spec 的兄弟字段）
                     if (!modified.contains("hostNetwork:")) {
+                        // 找到 containers: 之前的位置（在 spec.containers 同级）
                         modified = modified.replaceFirst(
-                                "(\\n\\s*containers:\\s*\\n)",
-                                "$1      hostNetwork: true\n");
+                                "(\\n)([ \\t]*containers:)",
+                                "$1      hostNetwork: true\n$2");
                     }
 
                     if (!modified.equals(original)) {
