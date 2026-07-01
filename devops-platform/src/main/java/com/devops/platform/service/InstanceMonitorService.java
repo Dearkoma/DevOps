@@ -583,10 +583,19 @@ public class InstanceMonitorService {
 
     /** 从实例名推导 K8s Service 名 */
     private String resolveK8sServiceName(ServiceInstance inst) {
-        // 实例名格式: proj-xxx-k8s → Service 名: proj-xxx-svc
+        // K8s Service 名始终是 <projectCode>-svc
+        // k8sPodName 字段存的就是 projectCode，优先用它
+        if (inst.getK8sPodName() != null && !inst.getK8sPodName().isBlank()) {
+            return inst.getK8sPodName() + "-svc";
+        }
+        // 兜底：从实例名推导，兼容旧格式 xxx-k8s 和新格式 xxx-k8s-3
         String base = inst.getInstanceName();
-        if (base.endsWith("-k8s")) base = base.substring(0, base.length() - 4);
-        else if (base.endsWith("-docker")) base = base.substring(0, base.length() - 7);
+        int k8sIdx = base.indexOf("-k8s");
+        if (k8sIdx > 0) {
+            base = base.substring(0, k8sIdx);
+        } else if (base.endsWith("-docker")) {
+            base = base.substring(0, base.length() - 7);
+        }
         return base + "-svc";
     }
 
