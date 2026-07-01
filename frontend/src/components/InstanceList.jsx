@@ -257,8 +257,11 @@ export default function InstanceList() {
     setExposingId(id)
     try {
       const r = await exposeToExternal(id)
-      alert(r?.success ? (r?.message || '转发成功') : (r?.error || '操作失败'))
-      if (r?.success) loadAll()
+      if (r?.success) {
+        loadAll()
+      } else {
+        alert(r?.error || '操作失败')
+      }
     } catch (e) { alert('转发失败: ' + e.message) }
     finally { setExposingId(null) }
   }
