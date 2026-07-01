@@ -785,11 +785,18 @@ public class BuildService {
                     logBuf.append("[K8S] 已将 SPRING_DATASOURCE_URL 的 host.docker.internal 替换为 ").append(k8sDbHost).append("\n");
                 }
                 // 若没有 hostNetwork 字段，加上以便能访问到宿主机
+                // 注意：hostNetwork 是 PodSpec 字段（spec.template.spec 的兄弟，不是 containers 内部）
+                // 用 \n 锚定避免 \s+ 跨段吞掉前面的空白导致错位
                 if (!yamlContent.contains("hostNetwork:") && !yamlContent.contains("hostNetwork:")) {
-                    yamlContent = yamlContent.replaceFirst(
-                            "(\\s+containers:\\s*\\n)",
-                            "$1      hostNetwork: true\n");
-                    logBuf.append("[K8S] 已自动添加 hostNetwork: true (K8s 容器访问宿主机数据库)\n");
+                    java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                            "([ \\t]+)(containers:)[ \\t]*\\n");
+                    java.util.regex.Matcher m = p.matcher(yamlContent);
+                    if (m.find()) {
+                        String indent = m.group(1);
+                        // 在 containers 之前、同一缩进级别插入 hostNetwork
+                        yamlContent = m.replaceFirst(indent + "hostNetwork: true\n" + indent + "containers:\n");
+                        logBuf.append("[K8S] 已自动添加 hostNetwork: true (K8s 容器访问宿主机数据库)\n");
+                    }
                 }
                 Files.writeString(deployPath, yamlContent);
                 logBuf.append("[K8S] 已更新 deployment.yaml replicas=").append(randomReplicas).append("\n");
