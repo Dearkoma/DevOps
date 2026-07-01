@@ -905,9 +905,43 @@ public class BuildService {
                                 "SPRING_DATASOURCE_PASSWORD\n              value: \"" + dbPass + "\"");
                     }
 
+                    // 5) 注入 env 段（如果还没有）— 用与 generateDefault 一致的 dbHost/端口
+                    if (!modified.contains("SPRING_DATASOURCE_URL")) {
+                        // K8s 容器需要访问宿主机 MySQL，host.docker.internal 在 K8s 中不解析
+                        String k8sDbHost = System.getenv().getOrDefault("K8S_DB_HOST", "127.0.0.1");
+                        String envInjection =
+                                "            - name: SPRING_DATASOURCE_URL\n" +
+                                "              value: \"jdbc:mysql://" + k8sDbHost + ":" + dbPort + "/" + dbName
+                                + "?useUnicode=true&characterEncoding=utf-8&useSSL=false"
+                                + "&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+                                + "&createDatabaseIfNotExist=true\"\n" +
+                                "            - name: SPRING_DATASOURCE_USERNAME\n" +
+                                "              value: \"" + dbUser + "\"\n" +
+                                "            - name: SPRING_DATASOURCE_PASSWORD\n" +
+                                "              value: \"" + dbPass + "\"\n";
+                        // 找到 "containerPort: 8080" 行后插入
+                        modified = modified.replaceFirst(
+                                "(- containerPort:[^\\n]+\\n)",
+                                "$1" + envInjection);
+                    } else {
+                        // 已存在 SPRING_DATASOURCE_URL 时，把 host.docker.internal 替换为 K8s 可达地址
+                        String k8sDbHost = System.getenv().getOrDefault("K8S_DB_HOST", "127.0.0.1");
+                        if (modified.contains("host.docker.internal")) {
+                            modified = modified.replaceAll("host\\.docker\\.internal", k8sDbHost);
+                        }
+                    }
+
+                    // 6) 自动添加 hostNetwork: true（K8s 容器访问宿主机 MySQL 必须）
+                    if (!modified.contains("hostNetwork:")) {
+                        modified = modified.replaceFirst(
+                                "(\\n\\s*containers:\\s*\\n)",
+                                "$1      hostNetwork: true\n");
+                    }
+
                     if (!modified.equals(original)) {
                         Files.writeString(deployPath, modified);
                         logBuf.append("[K8S] 已注入/替换 SPRING_DATASOURCE_URL 指向: ").append(jdbcUrl).append("\n");
+                        logBuf.append("[K8S] 已自动添加 hostNetwork: true（K8s 访问宿主机 MySQL）\n");
                     } else {
                         logBuf.append("[K8S] 警告: 未修改 deployment.yaml，O 项目可能使用自己的 application.yml\n");
                     }

@@ -18,8 +18,9 @@ public class EnvironmentController {
         return e == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(e);
     }
     @PostMapping
-    public Environment create(@RequestBody Environment env) { return environmentService.createEnvironme
-        nt(env); }
+    public Environment create(@RequestBody Environment env) {
+        return environmentService.createEnvironment(env);
+    }
     @PutMapping("/{id}")
     public ResponseEntity<Environment> update(@PathVariable Long id, @RequestBody Environment env) {
         Environment e = environmentService.updateEnvironment(id, env);
