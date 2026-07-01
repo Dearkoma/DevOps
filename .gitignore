@@ -20,3 +20,6 @@
 # 论文产物与参考资料（非平台代码）
 outputs/
 参考文献/
+
+# WorkBuddy 工作空间（非平台代码）
+.workbuddy/
