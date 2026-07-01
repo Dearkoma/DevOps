@@ -971,6 +971,42 @@ public class BuildService {
         }
         logBuf.append("[K8S] 部署完成\n");
 
+        // ==================== 检测端口冲突，给出明确错误 ====================
+        // hostNetwork: true 模式下 Pod 监听宿主机端口
+        // 如果宿主机 8080 已被 D 平台后端占用 → K8s Pod 永远 Pending
+        // 提前检测并提示用户停止占用进程
+        String[] hostPorts = {"8080", "80", "3000", "3306"};
+        StringBuilder portConflicts = new StringBuilder();
+        for (String port : hostPorts) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder("netstat", "-ano");
+                pb.redirectErrorStream(true);
+                Process proc = pb.start();
+                try (java.io.BufferedReader r = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(proc.getInputStream()))) {
+                    String l;
+                    while ((l = r.readLine()) != null) {
+                        // 匹配 ":8080 ... LISTENING"
+                        if (l.contains(":" + port) && l.contains("LISTENING")) {
+                            String[] parts = l.trim().split("\\s+");
+                            String pid = parts[parts.length - 1];
+                            portConflicts.append("  - 宿主机端口 ").append(port)
+                                    .append(" 被 PID ").append(pid).append(" 占用\n");
+                            break;
+                        }
+                    }
+                }
+                proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Exception ignored) {}
+        }
+        if (portConflicts.length() > 0) {
+            logBuf.append("[K8S] ⚠️ 检测到宿主机端口冲突（hostNetwork 模式下 Pod 监听宿主机端口）:\n");
+            logBuf.append(portConflicts);
+            logBuf.append("[HINT] 单节点 K8s + hostNetwork: true 时，多个应用不能都用同一端口\n");
+            logBuf.append("[HINT] 解决方法: 1) 停止 D 平台后端（PID 上面）让出 8080; 2) 改 O 项目的 deployment.yaml 不用 hostNetwork; 3) 删除多余的占位 Pod\n");
+            logBuf.append("[HINT] 删除占位 Pod: kubectl delete pod devops-placeholder -n devops --force --grace-period=0\n");
+        }
+
         // ==================== 部署后真实状态检查 ====================
         // 关键: 不能用 kubectl apply 成功 + rollout 警告就认为部署成功
         // 必须真实检查 Pod 是否就绪 (Running 且 Ready)
