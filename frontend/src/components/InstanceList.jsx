@@ -263,7 +263,11 @@ export default function InstanceList() {
     try {
       const r = await exposeToExternal(id)
       if (r?.success) {
-        loadAll()
+        await loadAll()
+        // 重新刷新当前展开行的 accessInfo，否则转发状态不更新
+        if (expandedId === id) {
+          setAccessInfo(await getAccessInfo(id))
+        }
       } else {
         alert(r?.error || '操作失败')
       }
@@ -277,7 +281,10 @@ export default function InstanceList() {
     try {
       const r = await stopForward(id)
       if (r?.success) {
-        loadAll()
+        await loadAll()
+        if (expandedId === id) {
+          setAccessInfo(await getAccessInfo(id))
+        }
       } else {
         alert(r?.error || '操作失败')
       }
