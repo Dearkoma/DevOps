@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
+import org.springframework.scheduling.annotation.Scheduled;
 import java.io.File;
 import java.io.FileReader;
 import java.util.*;
@@ -41,7 +42,9 @@ public class K8sClientService {
     private ApiClient apiClient;
     private CoreV1Api coreV1Api;
     private AppsV1Api appsV1Api;
-    private boolean connected = false;
+    private volatile boolean connected = false;
+    private volatile long lastCheckTime = 0;
+    private static final long STALE_THRESHOLD_MS = 10_000;  // 缓存有效期 10 秒
     private String connectionError = null;
     private String serverVersion = null;
     private String clusterName = null;
@@ -111,6 +114,7 @@ public class K8sClientService {
             coreV1Api.listNamespace().pretty("false").execute();
             this.connected = true;
             this.connectionError = null;
+            this.lastCheckTime = System.currentTimeMillis();
 
             // 获取版本号（k3s 会返回额外字段如 emulationMajor，Java Client 可能反序列化失败）
             try {
@@ -132,6 +136,7 @@ public class K8sClientService {
         } catch (Exception e) {
             this.connected = false;
             this.connectionError = analyzeError(e);
+            this.lastCheckTime = System.currentTimeMillis();
             log.warn("❌ Kubernetes 集群连接失败: {}", connectionError);
         }
     }
@@ -207,24 +212,88 @@ public class K8sClientService {
     }
 
     /**
-     * 获取连接状态
+     * 获取连接状态（智能缓存 + 实时检查）
+     * 缓存 10 秒内直接返回；超时后做 2 秒快速 Ping 确认真实状态
      */
     public boolean isConnected() {
-        return connected;
+        // 快速路径：已知断开，直接返回
+        if (!connected) return false;
+        // 缓存新鲜，直接返回
+        if (System.currentTimeMillis() - lastCheckTime < STALE_THRESHOLD_MS) return true;
+        // 缓存过期，做一次快速健康检查
+        return quickHealthCheck();
+    }
+
+    /**
+     * 快速健康检查（短超时 HTTP Ping，2 秒内判定）
+     * 成功则更新缓存时间，失败则标记 disconnected
+     */
+    private synchronized boolean quickHealthCheck() {
+        if (apiClient == null || !k8sEnabled) {
+            connected = false;
+            return false;
+        }
+        try {
+            okhttp3.OkHttpClient fastClient = apiClient.getHttpClient().newBuilder()
+                    .connectTimeout(java.time.Duration.ofSeconds(2))
+                    .readTimeout(java.time.Duration.ofSeconds(2))
+                    .build();
+            okhttp3.Request req = new okhttp3.Request.Builder()
+                    .url(apiClient.getBasePath() + "/api/v1/namespaces?limit=1&timeoutSeconds=2")
+                    .get()
+                    .build();
+            okhttp3.Response resp = fastClient.newCall(req).execute();
+            int code = resp.code();
+            resp.close();
+            if (code >= 200 && code < 300) {
+                connected = true;
+                lastCheckTime = System.currentTimeMillis();
+                connectionError = null;
+                return true;
+            } else {
+                connected = false;
+                connectionError = "K8s API 返回 HTTP " + code;
+                lastCheckTime = System.currentTimeMillis();
+                return false;
+            }
+        } catch (Exception e) {
+            connected = false;
+            connectionError = analyzeError(e);
+            lastCheckTime = System.currentTimeMillis();
+            return false;
+        }
+    }
+
+    /**
+     * 定时健康检查（每 30 秒自动刷新连接状态）
+     */
+    @Scheduled(fixedDelay = 30_000)
+    public void scheduledHealthCheck() {
+        if (!k8sEnabled) return;
+        if (apiClient == null) {
+            tryConnect();
+            return;
+        }
+        boolean wasConnected = connected;
+        boolean nowConnected = quickHealthCheck();
+        if (wasConnected != nowConnected) {
+            log.info("🔄 K8s 连接状态变化: {} → {}", wasConnected ? "已连接" : "已断开", nowConnected ? "已连接" : "已断开");
+        }
     }
 
     /**
      * 获取完整状态信息（含 Pod 统计）
      */
     public Map<String, Object> getStatus() {
+        boolean isConn = isConnected();  // 实时检查
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("connected", connected);
+        result.put("connected", isConn);
         result.put("serverVersion", serverVersion);
         result.put("clusterName", clusterName != null ? clusterName : "");
         result.put("namespace", defaultNamespace);
         result.put("error", connectionError);
 
-        if (connected) {
+        if (isConn) {
             // 统计目标命名空间的 Pod
             List<Map<String, String>> pods = listPods(defaultNamespace);
             result.put("podCount", pods.size());
@@ -385,7 +454,7 @@ public class K8sClientService {
      */
     public Map<String, Object> getFullStatus() {
         Map<String, Object> result = getStatus();
-        if (connected) {
+        if (Boolean.TRUE.equals(result.get("connected"))) {
             List<Map<String, String>> pods = listPods(defaultNamespace);
             result.put("pods", pods);
             result.put("podCount", pods.size());
