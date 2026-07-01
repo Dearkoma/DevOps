@@ -675,6 +675,35 @@ function InstanceTable({ instances, showType, setDeleteTarget, setRestartTarget,
                           </div>
                         ) : null}
 
+                        {/* 管理员凭据 */}
+                        {!accessLoading && accessInfo?.hasAdminCredentials && (
+                          <div style={{
+                            marginTop: 10, paddingTop: 10, borderTop: '1px dashed #d1d5db',
+                            display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap'
+                          }}>
+                            <span style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>👤 管理员凭据：</span>
+                            <code style={{
+                              background: '#fef3c7', padding: '4px 10px', borderRadius: 6,
+                              fontSize: 13, color: '#92400e', fontWeight: 500
+                            }}>
+                              {accessInfo.adminUsername} / {accessInfo.adminPassword}
+                            </code>
+                            {accessInfo.dbName && (
+                              <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                                🗄 独立库: <code style={{ background: '#e5e7eb', padding: '1px 6px', borderRadius: 4 }}>{accessInfo.dbName}</code>
+                              </span>
+                            )}
+                            <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                              onClick={() => {
+                                const creds = `${accessInfo.adminUsername} / ${accessInfo.adminPassword}`
+                                navigator.clipboard.writeText(creds)
+                                alert('已复制管理员凭据')
+                              }}>
+                              📋 复制凭据
+                            </button>
+                          </div>
+                        )}
+
                         {/* 日志区域 — 独立于 accessInfo，只要展开就显示 */}
                         {!accessLoading && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #d1d5db' }}>

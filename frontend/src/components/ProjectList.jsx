@@ -42,6 +42,8 @@ export default function ProjectList() {
   const [buildPendingPipeline, setBuildPendingPipeline] = useState(null)
   const [buildSkipDocker, setBuildSkipDocker] = useState(false)
   const [buildSkipK8s, setBuildSkipK8s] = useState(false)
+  const [buildDbName, setBuildDbName] = useState('')
+  const [buildAdminPassword, setBuildAdminPassword] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -216,6 +218,10 @@ export default function ProjectList() {
     setBuildPendingPipeline(pipeline)
     setBuildSkipDocker(false)
     setBuildSkipK8s(false)
+    // 默认数据库名: devops_<projectCode>
+    const defaultDb = detailProject.code ? `devops_${detailProject.code.replace(/[^a-zA-Z0-9_-]/g, '_')}` : ''
+    setBuildDbName(defaultDb)
+    setBuildAdminPassword('')
     setShowBuildModal(true)
   }
 
@@ -223,7 +229,10 @@ export default function ProjectList() {
     if (!detailProject || !buildPendingPipeline) return
     setShowBuildModal(false)
     try {
-      await triggerBuild(detailProject.id, buildPendingPipeline.id, null, null, buildSkipDocker, buildSkipK8s)
+      await triggerBuild(detailProject.id, buildPendingPipeline.id, null, null,
+        buildSkipDocker, buildSkipK8s,
+        buildDbName || null,
+        buildAdminPassword || null)
       alert('构建已触发！')
     } catch (e) { alert('触发失败: ' + e.message) }
   }
@@ -561,7 +570,7 @@ export default function ProjectList() {
           display: 'flex', alignItems: 'center', justifyContent: 'center'
         }} onClick={() => setShowBuildModal(false)}>
           <div style={{
-            background: '#fff', borderRadius: 12, padding: '24px 28px', width: 400, maxWidth: '92vw',
+            background: '#fff', borderRadius: 12, padding: '24px 28px', width: 420, maxWidth: '92vw',
             boxShadow: '0 8px 30px rgba(0,0,0,0.18)'
           }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 4px', fontSize: 18, color: '#1f2937' }}>⚡ 触发构建</h3>
@@ -599,6 +608,41 @@ export default function ProjectList() {
                   <div style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>☸️ 跳过 Kubectl</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>不执行 Kubernetes 部署</div>
                 </div>
+              </label>
+            </div>
+
+            {/* 数据库隔离配置 */}
+            <div style={{ marginTop: 12, background: '#f0f9ff', borderRadius: 8, padding: '10px 12px' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1', marginBottom: 8 }}>
+                🗄 数据库隔离配置（部署时自动创建独立库）
+              </div>
+              <label style={{ display: 'block', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>数据库名</span>
+                <input
+                  type="text"
+                  value={buildDbName}
+                  onChange={e => setBuildDbName(e.target.value)}
+                  placeholder={`devops_${detailProject?.code || 'app'}`}
+                  style={{
+                    width: '100%', padding: '6px 10px', marginTop: 2,
+                    border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13,
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>管理员密码（留空则默认 admin123）</span>
+                <input
+                  type="text"
+                  value={buildAdminPassword}
+                  onChange={e => setBuildAdminPassword(e.target.value)}
+                  placeholder="admin123"
+                  style={{
+                    width: '100%', padding: '6px 10px', marginTop: 2,
+                    border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13,
+                    boxSizing: 'border-box'
+                  }}
+                />
               </label>
             </div>
 

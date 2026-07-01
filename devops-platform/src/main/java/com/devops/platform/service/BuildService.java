@@ -36,6 +36,7 @@ public class BuildService {
     private final NotificationService notificationService;
     private final ServiceInstanceRepository instanceRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final DatabaseProvisioningService dbProvisioningService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final Map<Long, Process> runningProcesses = new ConcurrentHashMap<>();
@@ -104,14 +105,15 @@ public class BuildService {
         }
     }
 
-    /** 触发构建 */
+    /** 触发构建（简便重载） */
     public Build triggerBuild(Long projectId, Long pipelineId, String triggeredBy) {
-        return triggerBuild(projectId, pipelineId, triggeredBy, null, null, false, false);
+        return triggerBuild(projectId, pipelineId, triggeredBy, null, null, false, false, null, null);
     }
 
-    /** 参数化触发构建（含独立跳过标志） */
+    /** 参数化触发构建（含独立跳过标志、数据库名称、管理员密码） */
     public Build triggerBuild(Long projectId, Long pipelineId, String triggeredBy,
-                              String buildParams, String branch, boolean skipDocker, boolean skipK8s) {
+                              String buildParams, String branch, boolean skipDocker, boolean skipK8s,
+                              String dbName, String adminPassword) {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new RuntimeException("项目不存在: " + projectId));
         Pipeline pipeline = pipelineRepository.findById(pipelineId)
@@ -119,6 +121,17 @@ public class BuildService {
 
         long count = buildRepository.count();
         String buildNumber = "#" + (count + 1);
+
+        // 数据库名：用户指定 > 默认规则 devops_<projectCode>
+        String effectiveDbName = (dbName != null && !dbName.isBlank())
+                ? dbName : DatabaseProvisioningService.defaultDbName(project.getCode());
+
+        // 管理员密码：用户指定 > 默认 admin123（与 DataInitializer 一致）
+        String effectiveAdminPassword = (adminPassword != null && !adminPassword.isBlank())
+                ? adminPassword : "admin123";
+
+        // 在构建前先创建独立数据库（失败不阻塞构建，部署时还有一次兜底）
+        dbProvisioningService.createDatabase(effectiveDbName);
 
         Build build = new Build();
         build.setProjectId(projectId);
@@ -131,6 +144,17 @@ public class BuildService {
         build.setBranch(branch != null ? branch : project.getGitBranch());
         build.setSkipDocker(skipDocker);
         build.setSkipK8s(skipK8s);
+        build.setDbName(effectiveDbName);
+        // 将 adminPassword 塞进 buildParams JSON（如果原来有参数则合并）
+        try {
+            Map<String, Object> params = (buildParams != null && !buildParams.isBlank())
+                    ? objectMapper.readValue(buildParams, new TypeReference<>() {})
+                    : new LinkedHashMap<>();
+            params.put("adminPassword", effectiveAdminPassword);
+            build.setBuildParams(objectMapper.writeValueAsString(params));
+        } catch (Exception e) {
+            build.setBuildParams("{\"adminPassword\":\"" + effectiveAdminPassword + "\"}");
+        }
         buildRepository.save(build);
 
         executeBuildAsync(build.getId(), project, pipeline);
@@ -167,7 +191,7 @@ public class BuildService {
         }
 
         String triggerType = "PUSH";
-        Build build = triggerBuild(projectId, matched.getId(), committer, null, branch, false, false);
+        Build build = triggerBuild(projectId, matched.getId(), committer, null, branch, false, false, null, null);
         build.setTriggerType(triggerType);
         build.setGitCommit(commit);
         buildRepository.save(build);
@@ -377,6 +401,12 @@ public class BuildService {
             instance.setLastHeartbeat(LocalDateTime.now());
             String imageNameStr = dockerRegistry.isBlank() ? project.getCode() : dockerRegistry + "/" + project.getCode();
 
+            // 存储数据库名和管理员凭据
+            String instDbName = build.getDbName();
+            instance.setDbName(instDbName);
+            instance.setAdminUsername("admin");
+            instance.setAdminPassword(extractAdminPassword(build));
+
             if (!skipK8s) {
                 // K8s 部署（包含 Docker 镜像）
                 instance.setDeployType("K8S");
@@ -388,6 +418,8 @@ public class BuildService {
                 logBuf.append("[INSTANCE] K8s 实例: ").append(instance.getInstanceName()).append("\n");
                 logBuf.append("[INSTANCE] 命名空间: ").append(k8sNamespace).append("\n");
                 logBuf.append("[INSTANCE] Pod: ").append(instance.getK8sPodName()).append("\n");
+                logBuf.append("[INSTANCE] 数据库: ").append(instDbName).append("\n");
+                logBuf.append("[INSTANCE] 管理员: admin / ").append(instance.getAdminPassword()).append("\n");
             } else {
                 // 仅 Docker（跳过 K8s）
                 instance.setDeployType("DOCKER");
@@ -413,6 +445,21 @@ public class BuildService {
         } catch (Exception e) {
             logBuf.append("[WARN] 记录实例失败: ").append(e.getMessage()).append("\n");
         }
+    }
+
+    /** 从 Build.buildParams JSON 中提取 adminPassword，默认返回 "admin123" */
+    private String extractAdminPassword(Build build) {
+        try {
+            if (build.getBuildParams() != null) {
+                Map<String, Object> params = objectMapper.readValue(
+                        build.getBuildParams(), new TypeReference<>() {});
+                Object pwd = params.get("adminPassword");
+                if (pwd != null && !pwd.toString().isBlank()) {
+                    return pwd.toString();
+                }
+            }
+        } catch (Exception ignored) {}
+        return "admin123";
     }
 
     /** 检测 Docker 是否可用（结果缓存） */
@@ -654,7 +701,9 @@ public class BuildService {
         // 如果 deployment.yaml 不存在，自动生成默认模板
         if (!Files.exists(deployPath)) {
             logBuf.append("[K8S] deployment.yaml 不存在，自动生成默认模板\n");
-            String generated = generateDefaultK8sDeployment(project);
+            Build build = buildRepository.findById(buildId).orElse(null);
+            String dbName = build != null ? build.getDbName() : null;
+            String generated = generateDefaultK8sDeployment(project, dbName);
             try {
                 Files.writeString(deployPath, generated);
                 logBuf.append("[K8S] 已生成: ").append(deployPath.toString()).append("\n");
@@ -686,8 +735,9 @@ public class BuildService {
 
     /**
      * 自动生成默认的 K8s Deployment YAML
+     * @param dbName 目标数据库名（null 时回退到 devops_platform）
      */
-    private String generateDefaultK8sDeployment(Project project) {
+    private String generateDefaultK8sDeployment(Project project, String dbName) {
         String appName = project.getCode() != null ? project.getCode() : "devops-app";
         String image = appName + ":latest";
         int containerPort = 8080;
@@ -700,13 +750,16 @@ public class BuildService {
             hasFrontend = Files.exists(workspacePath.resolve("frontend"));
         } catch (IOException ignored) {}
 
-        // Java/Spring Boot 项目需要连接宿主机 MySQL，通过 host.docker.internal 访问
+        // 数据库名：使用构建时指定的独立库，若未指定则回退（保持向后兼容）
+        String targetDb = (dbName != null && !dbName.isBlank()) ? dbName : "devops_platform";
+
+        // Java/Spring Boot 项目需要连接宿主机 MySQL
         String envSection = "";
         if (project.getLanguage() == null || !"Node.js".equalsIgnoreCase(project.getLanguage())) {
             envSection =
                 "          env:\n" +
                 "            - name: SPRING_DATASOURCE_URL\n" +
-                "              value: \"jdbc:mysql://host.docker.internal:3306/devops_platform?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true\"\n" +
+                "              value: \"jdbc:mysql://host.docker.internal:3306/" + targetDb + "?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true\"\n" +
                 "            - name: SPRING_DATASOURCE_USERNAME\n" +
                 "              value: \"root\"\n" +
                 "            - name: SPRING_DATASOURCE_PASSWORD\n" +

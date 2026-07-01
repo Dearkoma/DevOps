@@ -70,6 +70,9 @@ public class Build {
     @Column
     private Boolean skipK8s = false;  // 是否跳过 K8s 部署阶段
 
+    @Column(length = 128)
+    private String dbName;  // 构建时指定的目标数据库名（用于部署时数据库隔离）
+
     @Column(columnDefinition = "LONGTEXT")
     private String logContent;  // 构建日志内容（数据库存储兜底）
 }

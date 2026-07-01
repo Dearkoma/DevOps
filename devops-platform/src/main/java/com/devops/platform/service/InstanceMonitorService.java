@@ -478,6 +478,8 @@ public class InstanceMonitorService {
         if ("STOPPED".equals(inst.getStatus())) {
             info.put("stopped", true);
             info.put("message", "实例已停止，无可用访问链接。请先启动实例。");
+            // 停止状态也返回管理员凭据（如果有存储）
+            addAdminCredentials(inst, info);
             return info;
         }
 
@@ -486,7 +488,23 @@ public class InstanceMonitorService {
         } else {
             buildDockerAccessInfo(inst, info);
         }
+
+        // 附加管理员凭据
+        addAdminCredentials(inst, info);
         return info;
+    }
+
+    /** 附加管理员凭据信息到访问信息中 */
+    private void addAdminCredentials(ServiceInstance inst, Map<String, Object> info) {
+        boolean hasAdmin = inst.getAdminUsername() != null && !inst.getAdminUsername().isBlank();
+        if (hasAdmin) {
+            info.put("hasAdminCredentials", true);
+            info.put("adminUsername", inst.getAdminUsername());
+            info.put("adminPassword", inst.getAdminPassword() != null ? inst.getAdminPassword() : "admin123");
+        }
+        if (inst.getDbName() != null && !inst.getDbName().isBlank()) {
+            info.put("dbName", inst.getDbName());
+        }
     }
 
     /** 从实例名推导 K8s Service 名 */
@@ -977,10 +995,12 @@ public class InstanceMonitorService {
         runArgs.add("-p");
         runArgs.add(freePort + ":" + containerPort);
 
-        // Java 项目注入 MySQL 环境变量
+        // Java 项目注入 MySQL 环境变量（使用实例独立的数据库名）
         if (inst.getDeployType() != null && !"Node.js".equalsIgnoreCase(inst.getDeployType())) {
+            String targetDb = (inst.getDbName() != null && !inst.getDbName().isBlank())
+                    ? inst.getDbName() : "devops_platform";
             runArgs.add("-e");
-            runArgs.add("SPRING_DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/devops_platform?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true");
+            runArgs.add("SPRING_DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/" + targetDb + "?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true");
             runArgs.add("-e");
             runArgs.add("SPRING_DATASOURCE_USERNAME=root");
             runArgs.add("-e");

@@ -73,6 +73,15 @@ public class ServiceInstance {
     @Column(length = 20)
     private String healthStatus;  // HEALTHY / UNHEALTHY / UNKNOWN
 
+    @Column(length = 128)
+    private String dbName;  // 独立数据库名（部署时自动创建）
+
+    @Column(length = 50)
+    private String adminUsername;  // 部署实例的管理员账号
+
+    @Column(length = 100)
+    private String adminPassword;  // 部署实例的管理员密码
+
     @Column
     private LocalDateTime lastHeartbeat;
 

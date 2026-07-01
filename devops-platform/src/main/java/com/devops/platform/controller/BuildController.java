@@ -27,6 +27,8 @@ public class BuildController {
             String branch = null;
             boolean skipDocker = false;
             boolean skipK8s = false;
+            String dbName = null;
+            String adminPassword = null;
             if (body != null) {
                 if (body.containsKey("buildParams")) {
                     Object p = body.get("buildParams");
@@ -52,8 +54,18 @@ public class BuildController {
                         case "K8S":    skipDocker = false; skipK8s = false; break;
                     }
                 }
+                // 数据库名和管理员密码（用于数据库隔离）
+                if (body.containsKey("dbName")) {
+                    Object d = body.get("dbName");
+                    dbName = d == null ? null : d.toString();
+                }
+                if (body.containsKey("adminPassword")) {
+                    Object a = body.get("adminPassword");
+                    adminPassword = a == null ? null : a.toString();
+                }
             }
-            Build build = buildService.triggerBuild(projectId, pipelineId, triggeredBy, buildParams, branch, skipDocker, skipK8s);
+            Build build = buildService.triggerBuild(projectId, pipelineId, triggeredBy,
+                    buildParams, branch, skipDocker, skipK8s, dbName, adminPassword);
             return ResponseEntity.ok(build);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

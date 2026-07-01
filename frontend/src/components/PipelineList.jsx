@@ -38,6 +38,8 @@ export default function PipelineList() {
   const [buildPendingPipeline, setBuildPendingPipeline] = useState(null)
   const [buildSkipDocker, setBuildSkipDocker] = useState(false)
   const [buildSkipK8s, setBuildSkipK8s] = useState(false)
+  const [buildDbName, setBuildDbName] = useState('')
+  const [buildAdminPassword, setBuildAdminPassword] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -117,6 +119,11 @@ export default function PipelineList() {
     setBuildPendingPipeline({ pipeline: p, projectId: pid })
     setBuildSkipDocker(false)
     setBuildSkipK8s(false)
+    // 默认数据库名
+    const proj = projects.find(pr => pr.id === pid)
+    const defaultDb = proj?.code ? `devops_${proj.code.replace(/[^a-zA-Z0-9_-]/g, '_')}` : ''
+    setBuildDbName(defaultDb)
+    setBuildAdminPassword('')
     setShowBuildModal(true)
   }
 
@@ -126,7 +133,10 @@ export default function PipelineList() {
     setShowBuildModal(false)
     setToast({ text: '构建触发中...', type: 'info' })
     try {
-      await triggerBuild(projectId, pipeline.id, null, null, buildSkipDocker, buildSkipK8s)
+      await triggerBuild(projectId, pipeline.id, null, null,
+        buildSkipDocker, buildSkipK8s,
+        buildDbName || null,
+        buildAdminPassword || null)
       setToast({ text: '构建已触发！可在"构建记录"中查看进度', type: 'info' })
       setTimeout(() => setToast(null), 3000)
     } catch (e) {
@@ -333,6 +343,44 @@ export default function PipelineList() {
                   <div style={{ fontWeight: 600 }}>☸️ 跳过 Kubectl</div>
                   <div style={{ color: '#9ca3af', fontSize: 12 }}>不执行 K8s 部署</div>
                 </div>
+              </label>
+            </div>
+
+            {/* 数据库隔离配置 */}
+            <div style={{
+              background: '#f0f9ff', borderRadius: 8, padding: '10px 12px',
+              marginBottom: 16, border: '1px solid #bae6fd'
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1', marginBottom: 8 }}>
+                🗄 数据库隔离配置（部署时自动创建独立库）
+              </div>
+              <label style={{ display: 'block', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>数据库名</span>
+                <input
+                  type="text"
+                  value={buildDbName}
+                  onChange={e => setBuildDbName(e.target.value)}
+                  placeholder="devops_app"
+                  style={{
+                    width: '100%', padding: '6px 10px', marginTop: 2,
+                    border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13,
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>管理员密码（留空则默认 admin123）</span>
+                <input
+                  type="text"
+                  value={buildAdminPassword}
+                  onChange={e => setBuildAdminPassword(e.target.value)}
+                  placeholder="admin123"
+                  style={{
+                    width: '100%', padding: '6px 10px', marginTop: 2,
+                    border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13,
+                    boxSizing: 'border-box'
+                  }}
+                />
               </label>
             </div>
             <div style={{
