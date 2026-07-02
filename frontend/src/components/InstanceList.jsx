@@ -57,8 +57,8 @@ export default function InstanceList() {
   const [depDetailLoading, setDepDetailLoading] = useState(false)
   const [deleteDepTarget, setDeleteDepTarget] = useState(null)
 
-  const loadAll = useCallback(async () => {
-    setLoading(true)
+  const loadAll = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const [list, s, st, avail] = await Promise.all([
         fetchInstances(), fetchInstanceStats(), fetchStatsByType(), fetchAvailability()
@@ -69,11 +69,19 @@ export default function InstanceList() {
       setDockerStatus(avail?.docker || null)
       setK8sStatus(avail?.k8s || null)
     } catch (e) { console.error(e) }
-    finally { setLoading(false) }
+    finally { if (!silent) setLoading(false) }
   }, [])
 
+  const silentRefresh = useCallback(() => loadAll(true), [loadAll])
+
+  // 刷新展开行的访问信息
+  const refreshAccessInfo = useCallback(async (id) => {
+    if (expandedId !== id) return
+    try { setAccessInfo(await getAccessInfo(id)) } catch { /* ignore */ }
+  }, [expandedId])
+
   useEffect(() => { loadAll() }, [loadAll])
-  useEffect(() => { const t = setInterval(loadAll, 15000); return () => clearInterval(t) }, [loadAll])
+  useEffect(() => { const t = setInterval(() => loadAll(true), 15000); return () => clearInterval(t) }, [loadAll])
 
   const loadDeployments = useCallback(async () => {
     if (!k8sStatus?.connected) return
@@ -110,7 +118,7 @@ export default function InstanceList() {
       const r = await deleteInstance(deleteTarget.id)
       setDeleteTarget(null)
       alert(r?.message || '已删除')
-      loadAll()
+      silentRefresh()
     } catch (e) {
       alert('删除失败: ' + (e.message || '未知错误'))
       // 保留弹窗，让用户知道操作失败
@@ -123,7 +131,8 @@ export default function InstanceList() {
       const instId = restartTarget.id
       setRestartTarget(null)
       alert(r?.message || (r?.success ? '重启成功' : '重启失败: ' + (r?.error || '')))
-      loadAll()
+      silentRefresh()
+      setTimeout(() => refreshAccessInfo(instId), 1000)
       // 重启后如果日志面板正打开，延迟刷新（Pod 需要几秒启动）
       if (showLogsId === instId) {
         setLogsData({ success: true, logs: '⏳ 实例正在重启，等待 Pod 启动后自动获取日志...', source: 'waiting' })
@@ -138,7 +147,8 @@ export default function InstanceList() {
       const instId = stopTarget.id
       setStopTarget(null)
       alert(r?.message || (r?.success ? '已停止' : '停止失败: ' + (r?.error || '')))
-      loadAll()
+      silentRefresh()
+      setTimeout(() => refreshAccessInfo(instId), 1000)
       // 停止后日志面板显示缓存日志 + 提示
       if (showLogsId === instId) {
         const cached = logsCache[instId + '-' + (activeLogRole || 'backend')]
@@ -160,7 +170,8 @@ export default function InstanceList() {
       const instId = startTarget.id
       setStartTarget(null)
       alert(r?.message || (r?.success ? '启动成功' : '启动失败: ' + (r?.error || '')))
-      loadAll()
+      silentRefresh()
+      setTimeout(() => refreshAccessInfo(instId), 1000)
       // 启动后如果日志面板正打开，延迟刷新
       if (showLogsId === instId) {
         setLogsData({ success: true, logs: '⏳ 实例正在启动，等待 Pod 就绪后自动获取日志...', source: 'waiting' })
@@ -268,10 +279,8 @@ export default function InstanceList() {
       }
       // 转发操作在服务端是异步的，等一小会再刷新确保状态已更新
       await new Promise(resolve => setTimeout(resolve, 800))
-      await loadAll()
-      if (expandedId === id) {
-        setAccessInfo(await getAccessInfo(id))
-      }
+      await silentRefresh()
+      await refreshAccessInfo(id)
     } catch (e) { alert('转发失败: ' + e.message) }
     finally { setExposingId(null) }
   }
@@ -286,10 +295,8 @@ export default function InstanceList() {
         return
       }
       await new Promise(resolve => setTimeout(resolve, 800))
-      await loadAll()
-      if (expandedId === id) {
-        setAccessInfo(await getAccessInfo(id))
-      }
+      await silentRefresh()
+      await refreshAccessInfo(id)
     } catch (e) { alert('停止转发失败: ' + e.message) }
     finally { setStopForwardId(null) }
   }
