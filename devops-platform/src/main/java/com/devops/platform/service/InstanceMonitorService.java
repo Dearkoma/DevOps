@@ -571,8 +571,10 @@ public class InstanceMonitorService {
         if ("STOPPED".equals(inst.getStatus())) {
             info.put("stopped", true);
             info.put("message", "实例已停止，无可用访问链接。请先启动实例。");
-            // 停止状态也返回管理员凭据（如果有存储）
-            addAdminCredentials(inst, info);
+            // 停止状态也返回数据库信息（如果有存储）
+            if (inst.getDbName() != null && !inst.getDbName().isBlank()) {
+                info.put("dbName", inst.getDbName());
+            }
             return info;
         }
 
@@ -582,24 +584,11 @@ public class InstanceMonitorService {
             buildDockerAccessInfo(inst, info);
         }
 
-        // 附加管理员凭据
-        addAdminCredentials(inst, info);
-        return info;
-    }
-
-    /** 附加管理员凭据信息到访问信息中 */
-    private void addAdminCredentials(ServiceInstance inst, Map<String, Object> info) {
-        // adminUsername 可能为 null（旧实例），统一使用默认值 admin/admin123
-        String username = (inst.getAdminUsername() != null && !inst.getAdminUsername().isBlank())
-                ? inst.getAdminUsername() : "admin";
-        String password = (inst.getAdminPassword() != null && !inst.getAdminPassword().isBlank())
-                ? inst.getAdminPassword() : "admin123";
-        info.put("hasAdminCredentials", true);
-        info.put("adminUsername", username);
-        info.put("adminPassword", password);
+        // 附加数据库信息（不再暴露管理员凭据）
         if (inst.getDbName() != null && !inst.getDbName().isBlank()) {
             info.put("dbName", inst.getDbName());
         }
+        return info;
     }
 
     /** 从实例名推导 K8s Service 名 */
