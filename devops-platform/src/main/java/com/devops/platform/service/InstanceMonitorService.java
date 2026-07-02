@@ -39,9 +39,39 @@ public class InstanceMonitorService {
     /** 跟踪 K8s 端口转发使用的本地端口：instanceId → localPort */
     private final Map<Long, Integer> portForwardPorts = new ConcurrentHashMap<>();
 
-    /** 应用关闭时清理所有端口转发进程 */
+    /**
+     * 应用关闭时：停止所有 RUNNING 的 O 项目实例 + 清理端口转发进程
+     * - K8s:  kubectl scale deployment/<depName> --replicas=0
+     * - Docker: docker stop <containerId>
+     */
     @PreDestroy
     public void cleanupAllPortForwards() {
+        // 1. 停止所有 RUNNING 的 O 项目实例
+        try {
+            List<ServiceInstance> runningInstances = instanceRepository.findAll().stream()
+                    .filter(inst -> "RUNNING".equals(inst.getStatus()))
+                    .collect(Collectors.toList());
+            if (!runningInstances.isEmpty()) {
+                log.info("D 项目关闭：自动停止 {} 个运行中的 O 项目实例", runningInstances.size());
+                for (ServiceInstance inst : runningInstances) {
+                    try {
+                        if ("K8S".equals(inst.getDeployType())) {
+                            stopK8sInstance(inst);
+                            log.info("  ✓ K8s 实例已缩容到 0: {}", inst.getInstanceName());
+                        } else {
+                            stopDockerInstance(inst);
+                            log.info("  ✓ Docker 容器已停止: {}", inst.getInstanceName());
+                        }
+                    } catch (Exception e) {
+                        log.warn("  ✗ 停止实例失败 [{}]: {}", inst.getInstanceName(), e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("关闭时停止 O 项目实例异常: {}", e.getMessage());
+        }
+
+        // 2. 清理所有端口转发进程
         log.info("清理所有端口转发进程，共 {} 个", portForwardProcesses.size());
         for (Map.Entry<Long, Process> entry : portForwardProcesses.entrySet()) {
             try {
