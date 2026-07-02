@@ -985,8 +985,12 @@ public class InstanceMonitorService {
 
         if ("K8S".equals(inst.getDeployType())) {
             String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
-            String searchTerm = inst.getInstanceName();
-            if (searchTerm != null) searchTerm = searchTerm.replaceAll("-(k8s|docker)$", "");
+            // 优先用 k8sPodName（= 项目编码 = Deployment 名），它才是 Pod 名前缀
+            String searchTerm = inst.getK8sPodName();
+            if (searchTerm == null || searchTerm.isBlank()) {
+                searchTerm = inst.getInstanceName();
+                if (searchTerm != null) searchTerm = searchTerm.replaceAll("-(k8s|docker)(-\\d+)?$", "");
+            }
 
             System.out.println("[CONTAINERS] 实例=" + inst.getInstanceName() + " ns=" + ns + " searchTerm=" + searchTerm);
 
@@ -1056,10 +1060,13 @@ public class InstanceMonitorService {
     private void collectK8sLogs(ServiceInstance inst, int tail, String container, Map<String, Object> result) {
         String ns = inst.getK8sNamespace() != null ? inst.getK8sNamespace() : "devops";
 
-        // 搜索词：用 instanceName 去掉 -k8s/-docker 后缀（Pod 名是 proj-xxx-<rs-hash>-<pod-hash>）
-        String searchTerm = inst.getInstanceName();
-        if (searchTerm != null) {
-            searchTerm = searchTerm.replaceAll("-(k8s|docker)$", "");
+        // 优先用 k8sPodName（= 项目编码 = Deployment 名），它才是 Pod 名前缀
+        String searchTerm = inst.getK8sPodName();
+        if (searchTerm == null || searchTerm.isBlank()) {
+            searchTerm = inst.getInstanceName();
+            if (searchTerm != null) {
+                searchTerm = searchTerm.replaceAll("-(k8s|docker)(-\\d+)?$", "");
+            }
         }
 
         // 始终实时解析当前 Pod 名（存储的 k8sPodName 可能已过期——Pod 重建后名字会变）
