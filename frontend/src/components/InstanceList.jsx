@@ -461,7 +461,7 @@ function DeleteDeploymentModal({ target, namespace, onClose, onConfirm }) {
 }
 
 // ==================== 页面视图 ====================
-function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole }) {
+function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, expandedId, accessInfo, accessLoading, exposingId, stopForwardId, onToggleRow, onExpose, onStopForward, logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole }) {
   return (
     <>
       <div className="page-header">
@@ -470,7 +470,7 @@ function AllInstancesView({ instances, stats, setDeleteTarget, setRestartTarget,
       </div>
       {stats && <StatsRow stats={stats} />}
       <InstanceTable instances={instances} showType setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
-        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
+        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} stopForwardId={stopForwardId} onToggleRow={onToggleRow} onExpose={onExpose} onStopForward={onStopForward}
         logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} containersData={containersData} activeLogRole={activeLogRole} />
     </>
   )
@@ -506,7 +506,7 @@ function K8sView({
   depDetail, setDepDetail, depDetailLoading, viewDepDetail,
   deleteDepTarget, setDeleteDepTarget, handleDeleteDeployment,
   setDeleteTarget, setRestartTarget, setStopTarget, setStartTarget, loadAll, canManage,
-  expandedId, accessInfo, accessLoading, exposingId, onToggleRow, onExpose,
+  expandedId, accessInfo, accessLoading, exposingId, stopForwardId, onToggleRow, onExpose, onStopForward,
   logsData, logsLoading, showLogsId, onViewLogs, onSaveLogs, onCloseLogs, containersData, activeLogRole,
 }) {
   const kStats = statsByType?.k8s
@@ -524,7 +524,7 @@ function K8sView({
       />
       {kStats && <TypeStats summary={kStats} label="K8s" />}
       <InstanceTable instances={k8sInstances} setDeleteTarget={setDeleteTarget} setRestartTarget={setRestartTarget} setStopTarget={setStopTarget} setStartTarget={setStartTarget}
-        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} onToggleRow={onToggleRow} onExpose={onExpose}
+        expandedId={expandedId} accessInfo={accessInfo} accessLoading={accessLoading} exposingId={exposingId} stopForwardId={stopForwardId} onToggleRow={onToggleRow} onExpose={onExpose} onStopForward={onStopForward}
         logsData={logsData} logsLoading={logsLoading} showLogsId={showLogsId} onViewLogs={onViewLogs} onSaveLogs={onSaveLogs} onCloseLogs={onCloseLogs} containersData={containersData} activeLogRole={activeLogRole} />
       {k8sStatus?.connected && <DeploymentPanel
         deployments={deployments} depLoading={depLoading}
